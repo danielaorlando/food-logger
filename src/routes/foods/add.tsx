@@ -1,0 +1,584 @@
+// ADD FOOD BY PHOTO — 4-Step Wizard
+//
+// Step 1 (upload)    → User selects up to 3 photos
+// Step 2 (analyzing) → AI + barcode decoder runs automatically
+// Step 3 (review)    → User sees extracted data, can edit, then saves
+// Step 4 (saved)     → Confirmation with options to add another or go back
+
+import { useState, useRef } from "react";
+import { createRoute, Link } from "@tanstack/react-router";
+import { Route as rootRoute } from "../__root";
+import { RequireAuth } from "../../components/RequireAuth";
+import { useAuth } from "../../context/AuthContext";
+import { extractFoodFromPhotos } from "../../utils/geminiVision";
+import { submitCustomFood } from "../../utils/foodsDb";
+import { BrowserMultiFormatReader } from "@zxing/browser";
+
+export const Route = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/foods/add",
+  component: AddFoodPage,
+});
+
+// ── TYPES ────────────────────────────────────────────────────────────────────
+
+type WizardStep = "upload" | "analyzing" | "review" | "saved";
+
+// We store numeric values as strings so inputs can be empty ("").
+// If we stored them as numbers, clearing the field would give 0 instead of "".
+interface WizardState {
+  step: WizardStep;
+  namePhoto: File | null;
+  nutritionPhoto: File | null;
+  barcodePhoto: File | null;
+  productName: string;
+  caloriesPer100g: string;
+  proteinPer100g: string;
+  fatPer100g: string;
+  carbsPer100g: string;
+  barcodeNumber: string;
+  analysisError: string | null;
+  aiExtractedFields: Set<string>;
+}
+
+const INITIAL_STATE: WizardState = {
+  step: "upload",
+  namePhoto: null,
+  nutritionPhoto: null,
+  barcodePhoto: null,
+  productName: "",
+  caloriesPer100g: "",
+  proteinPer100g: "",
+  fatPer100g: "",
+  carbsPer100g: "",
+  barcodeNumber: "",
+  analysisError: null,
+  aiExtractedFields: new Set(),
+};
+
+// ── BARCODE DECODE FROM STATIC IMAGE ────────────────────────────────────────
+
+async function decodeBarcodeFromFile(file: File): Promise<string | null> {
+  try {
+    const reader = new BrowserMultiFormatReader();
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.src = objectUrl;
+
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error("Image failed to load"));
+    });
+
+    const decodePromise = reader.decodeFromImageElement(img).then((r) => r.getText());
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Barcode decode timed out")), 6000)
+    );
+
+    const result = await Promise.race([decodePromise, timeoutPromise]);
+    URL.revokeObjectURL(objectUrl);
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+async function runAnalysisWithTimeout(
+  namePhoto: File | null,
+  nutritionPhoto: File | null,
+  barcodePhoto: File | null,
+) {
+  const analysisPromise = Promise.allSettled([
+    extractFoodFromPhotos(namePhoto, nutritionPhoto),
+    barcodePhoto ? decodeBarcodeFromFile(barcodePhoto) : Promise.resolve(null),
+  ]);
+
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("Analysis timed out after 30 seconds")), 30_000)
+  );
+
+  return Promise.race([analysisPromise, timeoutPromise]);
+}
+
+// ── MAIN COMPONENT ───────────────────────────────────────────────────────────
+
+function AddFoodPage() {
+  const { user } = useAuth();
+  const [state, setState] = useState<WizardState>(INITIAL_STATE);
+  const [saving, setSaving] = useState(false);
+
+  function resetWizard() {
+    setState(INITIAL_STATE);
+  }
+
+  async function runAnalysis() {
+    setState((s) => ({ ...s, step: "analyzing", analysisError: null }));
+
+    let results: [
+      PromiseSettledResult<Awaited<ReturnType<typeof extractFoodFromPhotos>>>,
+      PromiseSettledResult<string | null>,
+    ];
+    try {
+      results = await runAnalysisWithTimeout(state.namePhoto, state.nutritionPhoto, state.barcodePhoto);
+    } catch (err) {
+      setState((s) => ({
+        ...s,
+        analysisError: err instanceof Error ? err.message : "Analysis failed. You can fill in the details manually.",
+      }));
+      return;
+    }
+
+    const [geminiResult, barcodeResult] = results;
+    const gemini = geminiResult.status === "fulfilled" ? geminiResult.value : null;
+    const barcode = barcodeResult.status === "fulfilled" ? barcodeResult.value : null;
+
+    const aiExtractedFields = new Set<string>();
+    if (gemini?.name) aiExtractedFields.add("productName");
+    if (gemini?.caloriesPer100g) aiExtractedFields.add("caloriesPer100g");
+    if (gemini?.proteinPer100g) aiExtractedFields.add("proteinPer100g");
+    if (gemini?.fatPer100g) aiExtractedFields.add("fatPer100g");
+    if (gemini?.carbsPer100g) aiExtractedFields.add("carbsPer100g");
+    if (barcode) aiExtractedFields.add("barcodeNumber");
+
+    setState((s) => ({
+      ...s,
+      step: "review",
+      productName: gemini?.name ?? "",
+      caloriesPer100g: gemini?.caloriesPer100g?.toString() ?? "",
+      proteinPer100g: gemini?.proteinPer100g?.toString() ?? "",
+      fatPer100g: gemini?.fatPer100g?.toString() ?? "",
+      carbsPer100g: gemini?.carbsPer100g?.toString() ?? "",
+      barcodeNumber: barcode ?? "",
+      aiExtractedFields,
+    }));
+  }
+
+  async function handleSave() {
+    if (!user || !state.productName.trim() || !state.caloriesPer100g) return;
+    const kcal = parseFloat(state.caloriesPer100g);
+    if (isNaN(kcal) || kcal <= 0) return;
+
+    setSaving(true);
+    await submitCustomFood({
+      name: state.productName,
+      caloriesPer100g: kcal,
+      userId: user.uid,
+      barcode: state.barcodeNumber.trim() || undefined,
+      proteinPer100g: state.proteinPer100g ? parseFloat(state.proteinPer100g) : undefined,
+      fatPer100g: state.fatPer100g ? parseFloat(state.fatPer100g) : undefined,
+      carbsPer100g: state.carbsPer100g ? parseFloat(state.carbsPer100g) : undefined,
+    });
+    setSaving(false);
+    setState((s) => ({ ...s, step: "saved" }));
+  }
+
+  return (
+    <RequireAuth>
+      <h1 style={{ marginBottom: "0.25rem" }}>Add Food by Photo</h1>
+      <p style={{ color: "var(--color-text-muted)", marginBottom: "2rem" }}>
+        Take photos of a product and we'll extract the information for you.
+      </p>
+
+      <StepIndicator current={state.step} />
+
+      {state.step === "upload" && (
+        <UploadStep state={state} setState={setState} onAnalyze={runAnalysis} />
+      )}
+      {state.step === "analyzing" && (
+        <AnalyzingStep
+          error={state.analysisError}
+          onSkip={() => setState((s) => ({ ...s, step: "review", analysisError: null }))}
+        />
+      )}
+      {state.step === "review" && (
+        <ReviewStep state={state} setState={setState} onSave={handleSave} saving={saving} />
+      )}
+      {state.step === "saved" && (
+        <SavedStep productName={state.productName} onAddAnother={resetWizard} />
+      )}
+    </RequireAuth>
+  );
+}
+
+// ── STEP INDICATOR ───────────────────────────────────────────────────────────
+
+function StepIndicator({ current }: { current: WizardStep }) {
+  const steps: { id: WizardStep; label: string }[] = [
+    { id: "upload", label: "Photos" },
+    { id: "analyzing", label: "Analyzing" },
+    { id: "review", label: "Review" },
+    { id: "saved", label: "Saved" },
+  ];
+  const currentIndex = steps.findIndex((s) => s.id === current);
+
+  return (
+    <div style={{ display: "flex", gap: "0.5rem", marginBottom: "2rem", alignItems: "center", flexWrap: "wrap" }}>
+      {steps.map((step, i) => (
+        <div key={step.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <div
+            style={{
+              width: "28px",
+              height: "28px",
+              borderRadius: "50%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "0.8rem",
+              fontWeight: "600",
+              background: i <= currentIndex ? "var(--color-accent)" : "var(--color-border)",
+              color: i <= currentIndex ? "white" : "var(--color-text-muted)",
+            }}
+          >
+            {i < currentIndex ? "✓" : i + 1}
+          </div>
+          <span
+            style={{
+              fontSize: "0.8rem",
+              color: i === currentIndex ? "var(--color-accent)" : "var(--color-text-muted)",
+              fontWeight: i === currentIndex ? "600" : "400",
+            }}
+          >
+            {step.label}
+          </span>
+          {i < steps.length - 1 && (
+            <div style={{ width: "20px", height: "2px", background: "var(--color-border)" }} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── STEP 1: UPLOAD ───────────────────────────────────────────────────────────
+
+function UploadStep({
+  state,
+  setState,
+  onAnalyze,
+}: {
+  state: WizardState;
+  setState: React.Dispatch<React.SetStateAction<WizardState>>;
+  onAnalyze: () => void;
+}) {
+  const hasAnyPhoto = state.namePhoto || state.nutritionPhoto || state.barcodePhoto;
+
+  return (
+    <div>
+      <p style={{ marginBottom: "1.5rem", lineHeight: "1.6" }}>
+        Take up to 3 photos — you can skip any you don't need.
+      </p>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginBottom: "2rem" }}>
+        <PhotoZone
+          label="Photo 1: Product Label"
+          hint="Front of the package — we'll read the product name"
+          file={state.namePhoto}
+          onSelect={(f) => setState((s) => ({ ...s, namePhoto: f }))}
+          onRemove={() => setState((s) => ({ ...s, namePhoto: null }))}
+        />
+        <PhotoZone
+          label="Photo 2: Nutrition Facts"
+          hint="The nutrition table on the back — calories and macros"
+          file={state.nutritionPhoto}
+          onSelect={(f) => setState((s) => ({ ...s, nutritionPhoto: f }))}
+          onRemove={() => setState((s) => ({ ...s, nutritionPhoto: null }))}
+        />
+        <PhotoZone
+          label="Photo 3: Barcode (optional)"
+          hint="The barcode on the packaging — enables scanning later"
+          file={state.barcodePhoto}
+          onSelect={(f) => setState((s) => ({ ...s, barcodePhoto: f }))}
+          onRemove={() => setState((s) => ({ ...s, barcodePhoto: null }))}
+        />
+      </div>
+
+      <button
+        onClick={onAnalyze}
+        disabled={!hasAnyPhoto}
+        className="btn-primary"
+        style={{ opacity: hasAnyPhoto ? 1 : 0.45, cursor: hasAnyPhoto ? "pointer" : "not-allowed" }}
+      >
+        Analyze Photos
+      </button>
+    </div>
+  );
+}
+
+// Single photo upload zone with preview
+function PhotoZone({
+  label,
+  hint,
+  file,
+  onSelect,
+  onRemove,
+}: {
+  label: string;
+  hint: string;
+  file: File | null;
+  onSelect: (file: File) => void;
+  onRemove: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <div
+      style={{
+        border: "2px dashed var(--color-border)",
+        borderRadius: "0.75rem",
+        padding: "1rem",
+        display: "flex",
+        alignItems: "center",
+        gap: "1rem",
+        cursor: file ? "default" : "pointer",
+        background: file ? "var(--color-surface-alt)" : "transparent",
+      }}
+      onClick={() => !file && inputRef.current?.click()}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const selected = e.target.files?.[0];
+          if (selected) onSelect(selected);
+          e.target.value = "";
+        }}
+      />
+
+      {file ? (
+        <>
+          <img
+            src={URL.createObjectURL(file)}
+            alt="preview"
+            style={{ width: "64px", height: "64px", objectFit: "cover", borderRadius: "0.5rem", flexShrink: 0 }}
+          />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: "600", fontSize: "0.9rem" }}>{label}</div>
+            <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>{file.name}</div>
+          </div>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onRemove(); }}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "var(--color-text-muted)",
+              fontSize: "1.3rem",
+              padding: "0.25rem",
+              lineHeight: 1,
+            }}
+            title="Remove photo"
+          >
+            ×
+          </button>
+        </>
+      ) : (
+        <>
+          <div
+            style={{
+              width: "64px",
+              height: "64px",
+              borderRadius: "0.5rem",
+              background: "var(--color-border)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "1.5rem",
+              flexShrink: 0,
+            }}
+          >
+            📷
+          </div>
+          <div>
+            <div style={{ fontWeight: "600", fontSize: "0.9rem" }}>{label}</div>
+            <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>{hint}</div>
+            <div style={{ fontSize: "0.75rem", color: "var(--color-accent)", marginTop: "0.2rem" }}>
+              Tap to add photo
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── STEP 2: ANALYZING ────────────────────────────────────────────────────────
+
+function AnalyzingStep({ error, onSkip }: { error: string | null; onSkip: () => void }) {
+  if (error) {
+    const isNoApiKey = error.toLowerCase().includes("api_key") || error.toLowerCase().includes("not set");
+    return (
+      <div style={{ textAlign: "center", padding: "2rem 0" }}>
+        <div style={{ fontSize: "2.5rem", marginBottom: "1rem" }}>⚠️</div>
+        <p style={{ fontWeight: "600", marginBottom: "0.5rem" }}>
+          {isNoApiKey ? "Gemini API key not configured" : "Analysis didn't complete"}
+        </p>
+        <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginBottom: "0.75rem", maxWidth: "380px", margin: "0 auto 0.75rem" }}>
+          {isNoApiKey
+            ? "Add your free Gemini API key to .env as VITE_GEMINI_API_KEY to enable photo extraction."
+            : error}
+        </p>
+        <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginBottom: "1.5rem" }}>
+          You can still fill in the food details manually.
+        </p>
+        <button onClick={onSkip} className="btn-primary">
+          Continue Manually →
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ textAlign: "center", padding: "3rem 0" }}>
+      <div className="spinner" style={{ marginBottom: "1.5rem" }} />
+      <p style={{ fontWeight: "600", marginBottom: "0.5rem" }}>Analyzing your photos...</p>
+      <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
+        Gemini is reading the label and nutrition facts. This usually takes a few seconds.
+      </p>
+    </div>
+  );
+}
+
+// ── STEP 3: REVIEW ───────────────────────────────────────────────────────────
+
+function ReviewStep({
+  state,
+  setState,
+  onSave,
+  saving,
+}: {
+  state: WizardState;
+  setState: React.Dispatch<React.SetStateAction<WizardState>>;
+  onSave: () => void;
+  saving: boolean;
+}) {
+  const canSave = state.productName.trim() && state.caloriesPer100g && !isNaN(parseFloat(state.caloriesPer100g));
+
+  const AiBadge = ({ field }: { field: string }) =>
+    state.aiExtractedFields.has(field) ? (
+      <span style={{
+        fontSize: "0.7rem",
+        background: "rgba(255, 200, 50, 0.2)",
+        color: "#a07800",
+        border: "1px solid rgba(255,200,50,0.4)",
+        borderRadius: "0.25rem",
+        padding: "0.1rem 0.4rem",
+        marginLeft: "0.5rem",
+        verticalAlign: "middle",
+      }}>
+        AI — verify
+      </span>
+    ) : null;
+
+  function field(key: keyof WizardState, label: string, required = false, type = "text") {
+    return (
+      <label style={{ display: "block", marginBottom: "1rem" }}>
+        <div style={{ fontSize: "0.9rem", fontWeight: "600", marginBottom: "0.35rem" }}>
+          {label} {required && <span style={{ color: "red" }}>*</span>}
+          <AiBadge field={key} />
+        </div>
+        <input
+          type={type}
+          value={state[key] as string}
+          onChange={(e) => setState((s) => ({ ...s, [key]: e.target.value }))}
+          required={required}
+          style={{
+            width: "100%",
+            padding: "0.6rem 0.75rem",
+            border: "1.5px solid var(--color-border)",
+            borderRadius: "0.5rem",
+            fontSize: "1rem",
+            boxSizing: "border-box",
+          }}
+        />
+      </label>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{
+        background: "rgba(255, 200, 50, 0.1)",
+        border: "1px solid rgba(255, 200, 50, 0.4)",
+        borderRadius: "0.5rem",
+        padding: "0.75rem 1rem",
+        marginBottom: "1.5rem",
+        fontSize: "0.85rem",
+        color: "#806000",
+      }}>
+        <strong>AI isn't perfect!</strong> Fields marked "AI — verify" were extracted from your
+        photos by Gemini. Please check them before saving, especially the calorie values.
+      </div>
+
+      {field("productName", "Product Name", true)}
+      {field("caloriesPer100g", "Calories per 100g", true, "number")}
+
+      <p style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "1rem" }}>
+        Optional — add macros if the label shows them:
+      </p>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem", marginBottom: "1rem" }}>
+        {(["proteinPer100g", "fatPer100g", "carbsPer100g"] as const).map((key) => (
+          <label key={key} style={{ display: "block" }}>
+            <div style={{ fontSize: "0.8rem", fontWeight: "600", marginBottom: "0.25rem" }}>
+              {{ proteinPer100g: "Protein (g)", fatPer100g: "Fat (g)", carbsPer100g: "Carbs (g)" }[key]}
+              <AiBadge field={key} />
+            </div>
+            <input
+              type="number"
+              value={state[key]}
+              onChange={(e) => setState((s) => ({ ...s, [key]: e.target.value }))}
+              style={{
+                width: "100%",
+                padding: "0.5rem 0.6rem",
+                border: "1.5px solid var(--color-border)",
+                borderRadius: "0.5rem",
+                fontSize: "0.95rem",
+                boxSizing: "border-box",
+              }}
+            />
+          </label>
+        ))}
+      </div>
+
+      {field("barcodeNumber", "Barcode Number")}
+
+      <div style={{ display: "flex", gap: "0.75rem", marginTop: "1.5rem", flexWrap: "wrap" }}>
+        <button onClick={onSave} disabled={!canSave || saving} className="btn-primary">
+          {saving ? "Saving..." : "Save to Database"}
+        </button>
+        <button
+          onClick={() => setState((s) => ({ ...s, step: "upload" }))}
+          className="btn-secondary"
+        >
+          ← Back
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── STEP 4: SAVED ────────────────────────────────────────────────────────────
+
+function SavedStep({ productName, onAddAnother }: { productName: string; onAddAnother: () => void }) {
+  return (
+    <div style={{ textAlign: "center", padding: "2rem 0" }}>
+      <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>✅</div>
+      <h2 style={{ marginBottom: "0.5rem" }}>"{productName}" saved!</h2>
+      <p style={{ color: "var(--color-text-muted)", marginBottom: "2rem" }}>
+        It's now in the foods database and will appear in ingredient search.
+      </p>
+      <div style={{ display: "flex", gap: "1rem", justifyContent: "center", flexWrap: "wrap" }}>
+        <button onClick={onAddAnother} className="btn-primary">
+          Add Another Food
+        </button>
+        <Link to="/diary" className="btn-secondary" style={{ display: "inline-block" }}>
+          Go to My Diary
+        </Link>
+      </div>
+    </div>
+  );
+}
