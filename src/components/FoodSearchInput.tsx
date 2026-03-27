@@ -58,20 +58,31 @@ export function FoodSearchInput({ onSelect }: Props) {
     setOpen(false);
   }
 
-  // Source badge
-  const sourceBadge = () => (
-    <span style={{
-      fontSize: "0.7rem",
-      background: "rgba(224,123,74,0.15)",
-      color: "var(--color-accent)",
-      borderRadius: "0.25rem",
-      padding: "0.1rem 0.35rem",
-      fontWeight: "600",
-      flexShrink: 0,
-    }}>
-      My DB
-    </span>
-  );
+  // Source badge colors
+  const sourceBadge = (source: NutritionResult["source"]) => {
+    const styles: Record<string, { bg: string; color: string }> = {
+      custom: { bg: "rgba(224,123,74,0.15)", color: "var(--color-accent)" },
+      usda: { bg: "rgba(76,175,80,0.15)", color: "#2e7d32" },
+    };
+    const labels: Record<string, string> = {
+      custom: "My DB",
+      usda: "USDA",
+    };
+    const s = styles[source] ?? styles.custom;
+    return (
+      <span style={{
+        fontSize: "0.7rem",
+        background: s.bg,
+        color: s.color,
+        borderRadius: "0.25rem",
+        padding: "0.1rem 0.35rem",
+        fontWeight: "600",
+        flexShrink: 0,
+      }}>
+        {labels[source] ?? source}
+      </span>
+    );
+  };
 
   return (
     <div ref={wrapperRef} style={{ position: "relative" }}>
@@ -147,7 +158,7 @@ export function FoodSearchInput({ onSelect }: Props) {
               <span style={{ color: "var(--color-text-muted)", fontSize: "0.8rem", flexShrink: 0 }}>
                 {result.caloriesPer100g} kcal/100g
               </span>
-              {sourceBadge()}
+              {sourceBadge(result.source)}
             </button>
           ))}
         </div>

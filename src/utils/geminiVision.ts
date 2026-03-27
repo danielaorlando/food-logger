@@ -9,6 +9,7 @@
 // Then add to .env: VITE_GEMINI_API_KEY=your_key_here
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { compressImage } from "./compressImage";
 
 export interface GeminiExtractedFood {
   name: string | null;
@@ -84,11 +85,13 @@ export async function extractFoodFromPhotos(
     parts.push({ text: EXTRACTION_PROMPT } as never);
 
     if (namePhoto) {
-      const { data, mimeType } = await fileToBase64(namePhoto);
+      const compressed = await compressImage(namePhoto);
+      const { data, mimeType } = await fileToBase64(compressed);
       parts.push({ inlineData: { data, mimeType } } as never);
     }
     if (nutritionPhoto) {
-      const { data, mimeType } = await fileToBase64(nutritionPhoto);
+      const compressed = await compressImage(nutritionPhoto);
+      const { data, mimeType } = await fileToBase64(compressed);
       parts.push({ inlineData: { data, mimeType } } as never);
     }
 
@@ -111,6 +114,20 @@ export async function extractFoodFromPhotos(
     };
   } catch (err) {
     console.error("Gemini extraction failed:", err);
-    return EMPTY_RESULT;
+
+    // Surface a user-friendly message instead of silently returning empty data
+    const msg = err instanceof Error ? err.message : String(err);
+
+    if (msg.includes("503") || msg.toLowerCase().includes("unavailable") || msg.toLowerCase().includes("high demand")) {
+      throw new Error("Gemini AI is temporarily overloaded. Please wait a moment and try again.");
+    }
+    if (msg.includes("429") || msg.toLowerCase().includes("rate") || msg.toLowerCase().includes("quota")) {
+      throw new Error("You've hit the Gemini API rate limit. Please wait a minute before trying again.");
+    }
+    if (msg.includes("401") || msg.includes("403") || msg.toLowerCase().includes("api_key")) {
+      throw new Error("Your Gemini API key is invalid or expired. Check VITE_GEMINI_API_KEY in your .env file.");
+    }
+
+    throw new Error("Gemini couldn't analyze the photos. You can fill in the details manually.");
   }
 }

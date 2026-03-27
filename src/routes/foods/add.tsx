@@ -12,6 +12,7 @@ import { RequireAuth } from "../../components/RequireAuth";
 import { useAuth } from "../../context/AuthContext";
 import { extractFoodFromPhotos } from "../../utils/geminiVision";
 import { submitCustomFood } from "../../utils/foodsDb";
+import { compressImage } from "../../utils/compressImage";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 
 export const Route = createRoute({
@@ -60,9 +61,11 @@ const INITIAL_STATE: WizardState = {
 
 async function decodeBarcodeFromFile(file: File): Promise<string | null> {
   try {
+    // Convert HEIC/PNG/etc. to JPEG so the browser can render it in an <img>
+    const converted = await compressImage(file);
     const reader = new BrowserMultiFormatReader();
     const img = new Image();
-    const objectUrl = URL.createObjectURL(file);
+    const objectUrl = URL.createObjectURL(converted);
     img.src = objectUrl;
 
     await new Promise<void>((resolve, reject) => {
@@ -132,6 +135,18 @@ function AddFoodPage() {
     const gemini = geminiResult.status === "fulfilled" ? geminiResult.value : null;
     const barcode = barcodeResult.status === "fulfilled" ? barcodeResult.value : null;
 
+    // If Gemini failed, show the error on the analyzing step so the user
+    // knows what happened and can retry or continue manually.
+    const geminiError = geminiResult.status === "rejected"
+      ? (geminiResult.reason instanceof Error ? geminiResult.reason.message : "AI analysis failed.")
+      : null;
+
+    if (geminiError && !barcode) {
+      // Both AI and barcode failed (or no barcode photo) — stay on analyzing step with error
+      setState((s) => ({ ...s, analysisError: geminiError }));
+      return;
+    }
+
     const aiExtractedFields = new Set<string>();
     if (gemini?.name) aiExtractedFields.add("productName");
     if (gemini?.caloriesPer100g) aiExtractedFields.add("caloriesPer100g");
@@ -143,6 +158,7 @@ function AddFoodPage() {
     setState((s) => ({
       ...s,
       step: "review",
+      analysisError: geminiError,
       productName: gemini?.name ?? "",
       caloriesPer100g: gemini?.caloriesPer100g?.toString() ?? "",
       proteinPer100g: gemini?.proteinPer100g?.toString() ?? "",
@@ -188,6 +204,7 @@ function AddFoodPage() {
         <AnalyzingStep
           error={state.analysisError}
           onSkip={() => setState((s) => ({ ...s, step: "review", analysisError: null }))}
+          onRetry={runAnalysis}
         />
       )}
       {state.step === "review" && (
@@ -337,7 +354,7 @@ function PhotoZone({
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/heic,image/heif,image/webp"
         capture="environment"
         style={{ display: "none" }}
         onChange={(e) => {
@@ -407,9 +424,11 @@ function PhotoZone({
 
 // ── STEP 2: ANALYZING ────────────────────────────────────────────────────────
 
-function AnalyzingStep({ error, onSkip }: { error: string | null; onSkip: () => void }) {
+function AnalyzingStep({ error, onSkip, onRetry }: { error: string | null; onSkip: () => void; onRetry: () => void }) {
   if (error) {
-    const isNoApiKey = error.toLowerCase().includes("api_key") || error.toLowerCase().includes("not set");
+    const isNoApiKey = error.toLowerCase().includes("api_key") || error.toLowerCase().includes("not set") || error.toLowerCase().includes("invalid");
+    const isRetryable = error.toLowerCase().includes("overloaded") || error.toLowerCase().includes("rate limit")
+      || error.toLowerCase().includes("wait") || error.toLowerCase().includes("timed out");
     return (
       <div style={{ textAlign: "center", padding: "2rem 0" }}>
         <div style={{ fontSize: "2.5rem", marginBottom: "1rem" }}>⚠️</div>
@@ -422,11 +441,20 @@ function AnalyzingStep({ error, onSkip }: { error: string | null; onSkip: () => 
             : error}
         </p>
         <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginBottom: "1.5rem" }}>
-          You can still fill in the food details manually.
+          {isRetryable
+            ? "This is usually temporary — try again in a moment, or continue manually."
+            : "You can still fill in the food details manually."}
         </p>
-        <button onClick={onSkip} className="btn-primary">
-          Continue Manually →
-        </button>
+        <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center", flexWrap: "wrap" }}>
+          {isRetryable && (
+            <button onClick={onRetry} className="btn-primary">
+              Try Again
+            </button>
+          )}
+          <button onClick={onSkip} className={isRetryable ? "btn-secondary" : "btn-primary"}>
+            Continue Manually →
+          </button>
+        </div>
       </div>
     );
   }
@@ -500,18 +528,33 @@ function ReviewStep({
 
   return (
     <div>
-      <div style={{
-        background: "rgba(255, 200, 50, 0.1)",
-        border: "1px solid rgba(255, 200, 50, 0.4)",
-        borderRadius: "0.5rem",
-        padding: "0.75rem 1rem",
-        marginBottom: "1.5rem",
-        fontSize: "0.85rem",
-        color: "#806000",
-      }}>
-        <strong>AI isn't perfect!</strong> Fields marked "AI — verify" were extracted from your
-        photos by Gemini. Please check them before saving, especially the calorie values.
-      </div>
+      {state.analysisError ? (
+        <div style={{
+          background: "rgba(220, 80, 60, 0.08)",
+          border: "1px solid rgba(220, 80, 60, 0.3)",
+          borderRadius: "0.5rem",
+          padding: "0.75rem 1rem",
+          marginBottom: "1.5rem",
+          fontSize: "0.85rem",
+          color: "#a03020",
+        }}>
+          <strong>AI analysis failed:</strong> {state.analysisError}<br />
+          Please fill in the details manually from the product label.
+        </div>
+      ) : (
+        <div style={{
+          background: "rgba(255, 200, 50, 0.1)",
+          border: "1px solid rgba(255, 200, 50, 0.4)",
+          borderRadius: "0.5rem",
+          padding: "0.75rem 1rem",
+          marginBottom: "1.5rem",
+          fontSize: "0.85rem",
+          color: "#806000",
+        }}>
+          <strong>AI isn't perfect!</strong> Fields marked "AI — verify" were extracted from your
+          photos by Gemini. Please check them before saving, especially the calorie values.
+        </div>
+      )}
 
       {field("productName", "Product Name", true)}
       {field("caloriesPer100g", "Calories per 100g", true, "number")}
