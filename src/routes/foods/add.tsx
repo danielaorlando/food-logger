@@ -659,14 +659,15 @@ function ReviewStep({
     state.aiExtractedFields.has(field) ? (
       <span
         style={{
+          display: "block",
           fontSize: "0.7rem",
           background: "rgba(255, 200, 50, 0.2)",
           color: "#a07800",
           border: "1px solid rgba(255,200,50,0.4)",
           borderRadius: "0.25rem",
           padding: "0.1rem 0.4rem",
-          marginLeft: "0.5rem",
-          verticalAlign: "middle",
+          marginTop: "0.15rem",
+          width: "fit-content",
         }}
       >
         AI — Please verify the information
