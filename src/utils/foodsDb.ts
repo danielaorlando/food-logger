@@ -47,6 +47,7 @@ export async function searchCustomFoods(searchQuery: string): Promise<CustomFood
       proteinPer100g: data.proteinPer100g as number | undefined,
       fatPer100g: data.fatPer100g as number | undefined,
       carbsPer100g: data.carbsPer100g as number | undefined,
+      countryOfOrigin: data.countryOfOrigin as string | undefined,
     };
   });
 }
@@ -64,8 +65,73 @@ export async function submitCustomFood(payload: SubmitFoodPayload): Promise<stri
     ...(payload.proteinPer100g !== undefined ? { proteinPer100g: payload.proteinPer100g } : {}),
     ...(payload.fatPer100g !== undefined ? { fatPer100g: payload.fatPer100g } : {}),
     ...(payload.carbsPer100g !== undefined ? { carbsPer100g: payload.carbsPer100g } : {}),
+    ...(payload.countryOfOrigin ? { countryOfOrigin: payload.countryOfOrigin } : {}),
   });
   return doc.id;
+}
+
+// ── DUPLICATE CHECK ──────────────────────────────────────────────────────────
+// Checks if a food with the same name (case-insensitive) or barcode already exists.
+
+export async function checkDuplicateFood(
+  name: string,
+  barcode?: string,
+): Promise<CustomFood | null> {
+  // Check by exact name (case-insensitive)
+  const nameLower = name.toLowerCase().trim();
+  if (nameLower) {
+    const nameQ = query(
+      collection(db, "foods"),
+      where("nameLower", "==", nameLower),
+      limit(1),
+    );
+    const nameSnap = await getDocs(nameQ);
+    if (!nameSnap.empty) {
+      const doc = nameSnap.docs[0];
+      const data = doc.data();
+      return {
+        id: doc.id,
+        name: data.name as string,
+        caloriesPer100g: data.caloriesPer100g as number,
+        submittedBy: data.submittedBy as string,
+        createdAt: data.createdAt?.toDate() ?? new Date(),
+        barcode: data.barcode as string | undefined,
+        proteinPer100g: data.proteinPer100g as number | undefined,
+        fatPer100g: data.fatPer100g as number | undefined,
+        carbsPer100g: data.carbsPer100g as number | undefined,
+        countryOfOrigin: data.countryOfOrigin as string | undefined,
+      };
+    }
+  }
+
+  // Check by barcode if provided
+  if (barcode?.trim()) {
+    return lookupFoodByBarcode(barcode.trim());
+  }
+
+  return null;
+}
+
+// ── GET ALL FOODS ────────────────────────────────────────────────────────────
+
+export async function getAllFoods(): Promise<CustomFood[]> {
+  const q = query(collection(db, "foods"), orderBy("nameLower"));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      name: data.name as string,
+      caloriesPer100g: data.caloriesPer100g as number,
+      submittedBy: data.submittedBy as string,
+      createdAt: data.createdAt?.toDate() ?? new Date(),
+      barcode: data.barcode as string | undefined,
+      proteinPer100g: data.proteinPer100g as number | undefined,
+      fatPer100g: data.fatPer100g as number | undefined,
+      carbsPer100g: data.carbsPer100g as number | undefined,
+      countryOfOrigin: data.countryOfOrigin as string | undefined,
+    };
+  });
 }
 
 // ── BARCODE LOOKUP ────────────────────────────────────────────────────────────
@@ -92,5 +158,6 @@ export async function lookupFoodByBarcode(barcode: string): Promise<CustomFood |
     proteinPer100g: data.proteinPer100g as number | undefined,
     fatPer100g: data.fatPer100g as number | undefined,
     carbsPer100g: data.carbsPer100g as number | undefined,
+    countryOfOrigin: data.countryOfOrigin as string | undefined,
   };
 }

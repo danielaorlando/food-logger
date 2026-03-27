@@ -17,6 +17,7 @@ export interface GeminiExtractedFood {
   proteinPer100g: number | null;
   fatPer100g: number | null;
   carbsPer100g: number | null;
+  countryOfOrigin: string | null;
 }
 
 const EMPTY_RESULT: GeminiExtractedFood = {
@@ -25,6 +26,7 @@ const EMPTY_RESULT: GeminiExtractedFood = {
   proteinPer100g: null,
   fatPer100g: null,
   carbsPer100g: null,
+  countryOfOrigin: null,
 };
 
 async function fileToBase64(file: File): Promise<{ data: string; mimeType: string }> {
@@ -50,7 +52,8 @@ Return ONLY a valid JSON object with these exact fields:
   "caloriesPer100g": number or null,
   "proteinPer100g": number or null,
   "fatPer100g": number or null,
-  "carbsPer100g": number or null
+  "carbsPer100g": number or null,
+  "countryOfOrigin": "country of origin — look for explicit text like 'Made in Italy' or 'Product of Argentina'. If not found, infer the most likely country from clues such as the product name language, brand, nutrition label format (e.g. kJ vs kcal, mandatory nutrients), and packaging style. Return a country name or null only if you truly cannot determine it."
 }
 
 IMPORTANT rules:
@@ -111,6 +114,7 @@ export async function extractFoodFromPhotos(
       proteinPer100g: typeof parsed.proteinPer100g === "number" ? parsed.proteinPer100g : null,
       fatPer100g: typeof parsed.fatPer100g === "number" ? parsed.fatPer100g : null,
       carbsPer100g: typeof parsed.carbsPer100g === "number" ? parsed.carbsPer100g : null,
+      countryOfOrigin: typeof parsed.countryOfOrigin === "string" ? parsed.countryOfOrigin : null,
     };
   } catch (err) {
     console.error("Gemini extraction failed:", err);

@@ -11,8 +11,10 @@ import { Route as rootRoute } from "../__root";
 import { RequireAuth } from "../../components/RequireAuth";
 import { useAuth } from "../../context/AuthContext";
 import { extractFoodFromPhotos } from "../../utils/geminiVision";
-import { submitCustomFood } from "../../utils/foodsDb";
+import { submitCustomFood, checkDuplicateFood } from "../../utils/foodsDb";
+import type { CustomFood } from "../../types/food";
 import { compressImage } from "../../utils/compressImage";
+import { getCountryFromBarcode } from "../../utils/gs1CountryLookup";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 
 export const Route = createRoute({
@@ -38,6 +40,7 @@ interface WizardState {
   fatPer100g: string;
   carbsPer100g: string;
   barcodeNumber: string;
+  countryOfOrigin: string;
   analysisError: string | null;
   aiExtractedFields: Set<string>;
 }
@@ -53,6 +56,7 @@ const INITIAL_STATE: WizardState = {
   fatPer100g: "",
   carbsPer100g: "",
   barcodeNumber: "",
+  countryOfOrigin: "",
   analysisError: null,
   aiExtractedFields: new Set(),
 };
@@ -73,9 +77,11 @@ async function decodeBarcodeFromFile(file: File): Promise<string | null> {
       img.onerror = () => reject(new Error("Image failed to load"));
     });
 
-    const decodePromise = reader.decodeFromImageElement(img).then((r) => r.getText());
+    const decodePromise = reader
+      .decodeFromImageElement(img)
+      .then((r) => r.getText());
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Barcode decode timed out")), 6000)
+      setTimeout(() => reject(new Error("Barcode decode timed out")), 6000),
     );
 
     const result = await Promise.race([decodePromise, timeoutPromise]);
@@ -97,7 +103,10 @@ async function runAnalysisWithTimeout(
   ]);
 
   const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error("Analysis timed out after 30 seconds")), 30_000)
+    setTimeout(
+      () => reject(new Error("Analysis timed out after 30 seconds")),
+      30_000,
+    ),
   );
 
   return Promise.race([analysisPromise, timeoutPromise]);
@@ -109,9 +118,13 @@ function AddFoodPage() {
   const { user } = useAuth();
   const [state, setState] = useState<WizardState>(INITIAL_STATE);
   const [saving, setSaving] = useState(false);
+  const [duplicateFood, setDuplicateFood] = useState<CustomFood | null>(null);
+  const [showDuplicateWarning, setShowDuplicateWarning] = useState(false);
 
   function resetWizard() {
     setState(INITIAL_STATE);
+    setDuplicateFood(null);
+    setShowDuplicateWarning(false);
   }
 
   async function runAnalysis() {
@@ -122,24 +135,36 @@ function AddFoodPage() {
       PromiseSettledResult<string | null>,
     ];
     try {
-      results = await runAnalysisWithTimeout(state.namePhoto, state.nutritionPhoto, state.barcodePhoto);
+      results = await runAnalysisWithTimeout(
+        state.namePhoto,
+        state.nutritionPhoto,
+        state.barcodePhoto,
+      );
     } catch (err) {
       setState((s) => ({
         ...s,
-        analysisError: err instanceof Error ? err.message : "Analysis failed. You can fill in the details manually.",
+        analysisError:
+          err instanceof Error
+            ? err.message
+            : "Analysis failed. You can fill in the details manually.",
       }));
       return;
     }
 
     const [geminiResult, barcodeResult] = results;
-    const gemini = geminiResult.status === "fulfilled" ? geminiResult.value : null;
-    const barcode = barcodeResult.status === "fulfilled" ? barcodeResult.value : null;
+    const gemini =
+      geminiResult.status === "fulfilled" ? geminiResult.value : null;
+    const barcode =
+      barcodeResult.status === "fulfilled" ? barcodeResult.value : null;
 
     // If Gemini failed, show the error on the analyzing step so the user
     // knows what happened and can retry or continue manually.
-    const geminiError = geminiResult.status === "rejected"
-      ? (geminiResult.reason instanceof Error ? geminiResult.reason.message : "AI analysis failed.")
-      : null;
+    const geminiError =
+      geminiResult.status === "rejected"
+        ? geminiResult.reason instanceof Error
+          ? geminiResult.reason.message
+          : "AI analysis failed."
+        : null;
 
     if (geminiError && !barcode) {
       // Both AI and barcode failed (or no barcode photo) — stay on analyzing step with error
@@ -155,6 +180,11 @@ function AddFoodPage() {
     if (gemini?.carbsPer100g) aiExtractedFields.add("carbsPer100g");
     if (barcode) aiExtractedFields.add("barcodeNumber");
 
+    // Country of origin: prefer Gemini label extraction, fallback to GS1 barcode prefix
+    const countryOfOrigin =
+      gemini?.countryOfOrigin || (barcode ? getCountryFromBarcode(barcode) : null) || "";
+    if (countryOfOrigin) aiExtractedFields.add("countryOfOrigin");
+
     setState((s) => ({
       ...s,
       step: "review",
@@ -165,6 +195,7 @@ function AddFoodPage() {
       fatPer100g: gemini?.fatPer100g?.toString() ?? "",
       carbsPer100g: gemini?.carbsPer100g?.toString() ?? "",
       barcodeNumber: barcode ?? "",
+      countryOfOrigin,
       aiExtractedFields,
     }));
   }
@@ -175,14 +206,33 @@ function AddFoodPage() {
     if (isNaN(kcal) || kcal <= 0) return;
 
     setSaving(true);
+
+    // Check for duplicates first
+    const existing = await checkDuplicateFood(
+      state.productName,
+      state.barcodeNumber.trim() || undefined,
+    );
+
+    if (existing) {
+      setSaving(false);
+      setDuplicateFood(existing);
+      setShowDuplicateWarning(true);
+      return;
+    }
+
     await submitCustomFood({
       name: state.productName,
       caloriesPer100g: kcal,
       userId: user.uid,
       barcode: state.barcodeNumber.trim() || undefined,
-      proteinPer100g: state.proteinPer100g ? parseFloat(state.proteinPer100g) : undefined,
+      proteinPer100g: state.proteinPer100g
+        ? parseFloat(state.proteinPer100g)
+        : undefined,
       fatPer100g: state.fatPer100g ? parseFloat(state.fatPer100g) : undefined,
-      carbsPer100g: state.carbsPer100g ? parseFloat(state.carbsPer100g) : undefined,
+      carbsPer100g: state.carbsPer100g
+        ? parseFloat(state.carbsPer100g)
+        : undefined,
+      countryOfOrigin: state.countryOfOrigin.trim() || undefined,
     });
     setSaving(false);
     setState((s) => ({ ...s, step: "saved" }));
@@ -203,15 +253,32 @@ function AddFoodPage() {
       {state.step === "analyzing" && (
         <AnalyzingStep
           error={state.analysisError}
-          onSkip={() => setState((s) => ({ ...s, step: "review", analysisError: null }))}
+          onSkip={() =>
+            setState((s) => ({ ...s, step: "review", analysisError: null }))
+          }
           onRetry={runAnalysis}
         />
       )}
       {state.step === "review" && (
-        <ReviewStep state={state} setState={setState} onSave={handleSave} saving={saving} />
+        <ReviewStep
+          state={state}
+          setState={setState}
+          onSave={handleSave}
+          saving={saving}
+        />
       )}
       {state.step === "saved" && (
         <SavedStep productName={state.productName} onAddAnother={resetWizard} />
+      )}
+
+      {showDuplicateWarning && duplicateFood && (
+        <DuplicateWarningDialog
+          existing={duplicateFood}
+          onCancel={() => {
+            setShowDuplicateWarning(false);
+            setDuplicateFood(null);
+          }}
+        />
       )}
     </RequireAuth>
   );
@@ -229,9 +296,20 @@ function StepIndicator({ current }: { current: WizardStep }) {
   const currentIndex = steps.findIndex((s) => s.id === current);
 
   return (
-    <div style={{ display: "flex", gap: "0.5rem", marginBottom: "2rem", alignItems: "center", flexWrap: "wrap" }}>
+    <div
+      style={{
+        display: "flex",
+        gap: "0.5rem",
+        marginBottom: "2rem",
+        alignItems: "center",
+        flexWrap: "wrap",
+      }}
+    >
       {steps.map((step, i) => (
-        <div key={step.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <div
+          key={step.id}
+          style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
+        >
           <div
             style={{
               width: "28px",
@@ -242,7 +320,10 @@ function StepIndicator({ current }: { current: WizardStep }) {
               justifyContent: "center",
               fontSize: "0.8rem",
               fontWeight: "600",
-              background: i <= currentIndex ? "var(--color-accent)" : "var(--color-border)",
+              background:
+                i <= currentIndex
+                  ? "var(--color-accent)"
+                  : "var(--color-border)",
               color: i <= currentIndex ? "white" : "var(--color-text-muted)",
             }}
           >
@@ -251,14 +332,23 @@ function StepIndicator({ current }: { current: WizardStep }) {
           <span
             style={{
               fontSize: "0.8rem",
-              color: i === currentIndex ? "var(--color-accent)" : "var(--color-text-muted)",
+              color:
+                i === currentIndex
+                  ? "var(--color-accent)"
+                  : "var(--color-text-muted)",
               fontWeight: i === currentIndex ? "600" : "400",
             }}
           >
             {step.label}
           </span>
           {i < steps.length - 1 && (
-            <div style={{ width: "20px", height: "2px", background: "var(--color-border)" }} />
+            <div
+              style={{
+                width: "20px",
+                height: "2px",
+                background: "var(--color-border)",
+              }}
+            />
           )}
         </div>
       ))}
@@ -277,7 +367,8 @@ function UploadStep({
   setState: React.Dispatch<React.SetStateAction<WizardState>>;
   onAnalyze: () => void;
 }) {
-  const hasAnyPhoto = state.namePhoto || state.nutritionPhoto || state.barcodePhoto;
+  const hasAnyPhoto =
+    state.namePhoto || state.nutritionPhoto || state.barcodePhoto;
 
   return (
     <div>
@@ -285,7 +376,14 @@ function UploadStep({
         Take up to 3 photos — you can skip any you don't need.
       </p>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginBottom: "2rem" }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "1rem",
+          marginBottom: "2rem",
+        }}
+      >
         <PhotoZone
           label="Photo 1: Product Label"
           hint="Front of the package — we'll read the product name"
@@ -313,7 +411,10 @@ function UploadStep({
         onClick={onAnalyze}
         disabled={!hasAnyPhoto}
         className="btn-primary"
-        style={{ opacity: hasAnyPhoto ? 1 : 0.45, cursor: hasAnyPhoto ? "pointer" : "not-allowed" }}
+        style={{
+          opacity: hasAnyPhoto ? 1 : 0.45,
+          cursor: hasAnyPhoto ? "pointer" : "not-allowed",
+        }}
       >
         Analyze Photos
       </button>
@@ -369,15 +470,28 @@ function PhotoZone({
           <img
             src={URL.createObjectURL(file)}
             alt="preview"
-            style={{ width: "64px", height: "64px", objectFit: "cover", borderRadius: "0.5rem", flexShrink: 0 }}
+            style={{
+              width: "64px",
+              height: "64px",
+              objectFit: "cover",
+              borderRadius: "0.5rem",
+              flexShrink: 0,
+            }}
           />
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: "600", fontSize: "0.9rem" }}>{label}</div>
-            <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>{file.name}</div>
+            <div
+              style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}
+            >
+              {file.name}
+            </div>
           </div>
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); onRemove(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove();
+            }}
             style={{
               background: "none",
               border: "none",
@@ -411,8 +525,18 @@ function PhotoZone({
           </div>
           <div>
             <div style={{ fontWeight: "600", fontSize: "0.9rem" }}>{label}</div>
-            <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>{hint}</div>
-            <div style={{ fontSize: "0.75rem", color: "var(--color-accent)", marginTop: "0.2rem" }}>
+            <div
+              style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}
+            >
+              {hint}
+            </div>
+            <div
+              style={{
+                fontSize: "0.75rem",
+                color: "var(--color-accent)",
+                marginTop: "0.2rem",
+              }}
+            >
               Tap to add photo
             </div>
           </div>
@@ -424,34 +548,74 @@ function PhotoZone({
 
 // ── STEP 2: ANALYZING ────────────────────────────────────────────────────────
 
-function AnalyzingStep({ error, onSkip, onRetry }: { error: string | null; onSkip: () => void; onRetry: () => void }) {
+function AnalyzingStep({
+  error,
+  onSkip,
+  onRetry,
+}: {
+  error: string | null;
+  onSkip: () => void;
+  onRetry: () => void;
+}) {
   if (error) {
-    const isNoApiKey = error.toLowerCase().includes("api_key") || error.toLowerCase().includes("not set") || error.toLowerCase().includes("invalid");
-    const isRetryable = error.toLowerCase().includes("overloaded") || error.toLowerCase().includes("rate limit")
-      || error.toLowerCase().includes("wait") || error.toLowerCase().includes("timed out");
+    const isNoApiKey =
+      error.toLowerCase().includes("api_key") ||
+      error.toLowerCase().includes("not set") ||
+      error.toLowerCase().includes("invalid");
+    const isRetryable =
+      error.toLowerCase().includes("overloaded") ||
+      error.toLowerCase().includes("rate limit") ||
+      error.toLowerCase().includes("wait") ||
+      error.toLowerCase().includes("timed out");
     return (
       <div style={{ textAlign: "center", padding: "2rem 0" }}>
         <div style={{ fontSize: "2.5rem", marginBottom: "1rem" }}>⚠️</div>
         <p style={{ fontWeight: "600", marginBottom: "0.5rem" }}>
-          {isNoApiKey ? "Gemini API key not configured" : "Analysis didn't complete"}
+          {isNoApiKey
+            ? "Gemini API key not configured"
+            : "Analysis didn't complete"}
         </p>
-        <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginBottom: "0.75rem", maxWidth: "380px", margin: "0 auto 0.75rem" }}>
+        <p
+          style={{
+            fontSize: "0.85rem",
+            color: "var(--color-text-muted)",
+            marginBottom: "0.75rem",
+            maxWidth: "380px",
+            margin: "0 auto 0.75rem",
+          }}
+        >
           {isNoApiKey
             ? "Add your free Gemini API key to .env as VITE_GEMINI_API_KEY to enable photo extraction."
             : error}
         </p>
-        <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginBottom: "1.5rem" }}>
+        <p
+          style={{
+            fontSize: "0.85rem",
+            color: "var(--color-text-muted)",
+            marginBottom: "1.5rem",
+          }}
+        >
           {isRetryable
             ? "This is usually temporary — try again in a moment, or continue manually."
             : "You can still fill in the food details manually."}
         </p>
-        <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center", flexWrap: "wrap" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: "0.75rem",
+            justifyContent: "center",
+            flexWrap: "wrap",
+          }}
+        >
           {isRetryable && (
             <button onClick={onRetry} className="btn-primary">
               Try Again
             </button>
           )}
-          <button onClick={onSkip} className={isRetryable ? "btn-secondary" : "btn-primary"}>
+          <button
+            onClick={onSkip}
+            className={isRetryable ? "btn-secondary" : "btn-primary"}
+          >
             Continue Manually →
           </button>
         </div>
@@ -462,9 +626,12 @@ function AnalyzingStep({ error, onSkip, onRetry }: { error: string | null; onSki
   return (
     <div style={{ textAlign: "center", padding: "3rem 0" }}>
       <div className="spinner" style={{ marginBottom: "1.5rem" }} />
-      <p style={{ fontWeight: "600", marginBottom: "0.5rem" }}>Analyzing your photos...</p>
+      <p style={{ fontWeight: "600", marginBottom: "0.5rem" }}>
+        Analyzing your photos...
+      </p>
       <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
-        Gemini is reading the label and nutrition facts. This usually takes a few seconds.
+        Gemini is reading the label and nutrition facts. This usually takes a
+        few seconds.
       </p>
     </div>
   );
@@ -483,28 +650,44 @@ function ReviewStep({
   onSave: () => void;
   saving: boolean;
 }) {
-  const canSave = state.productName.trim() && state.caloriesPer100g && !isNaN(parseFloat(state.caloriesPer100g));
+  const canSave =
+    state.productName.trim() &&
+    state.caloriesPer100g &&
+    !isNaN(parseFloat(state.caloriesPer100g));
 
   const AiBadge = ({ field }: { field: string }) =>
     state.aiExtractedFields.has(field) ? (
-      <span style={{
-        fontSize: "0.7rem",
-        background: "rgba(255, 200, 50, 0.2)",
-        color: "#a07800",
-        border: "1px solid rgba(255,200,50,0.4)",
-        borderRadius: "0.25rem",
-        padding: "0.1rem 0.4rem",
-        marginLeft: "0.5rem",
-        verticalAlign: "middle",
-      }}>
-        AI — verify
+      <span
+        style={{
+          fontSize: "0.7rem",
+          background: "rgba(255, 200, 50, 0.2)",
+          color: "#a07800",
+          border: "1px solid rgba(255,200,50,0.4)",
+          borderRadius: "0.25rem",
+          padding: "0.1rem 0.4rem",
+          marginLeft: "0.5rem",
+          verticalAlign: "middle",
+        }}
+      >
+        AI — Please verify the information
       </span>
     ) : null;
 
-  function field(key: keyof WizardState, label: string, required = false, type = "text") {
+  function field(
+    key: keyof WizardState,
+    label: string,
+    required = false,
+    type = "text",
+  ) {
     return (
       <label style={{ display: "block", marginBottom: "1rem" }}>
-        <div style={{ fontSize: "0.9rem", fontWeight: "600", marginBottom: "0.35rem" }}>
+        <div
+          style={{
+            fontSize: "0.9rem",
+            fontWeight: "600",
+            marginBottom: "0.35rem",
+          }}
+        >
           {label} {required && <span style={{ color: "red" }}>*</span>}
           <AiBadge field={key} />
         </div>
@@ -529,68 +712,115 @@ function ReviewStep({
   return (
     <div>
       {state.analysisError ? (
-        <div style={{
-          background: "rgba(220, 80, 60, 0.08)",
-          border: "1px solid rgba(220, 80, 60, 0.3)",
-          borderRadius: "0.5rem",
-          padding: "0.75rem 1rem",
-          marginBottom: "1.5rem",
-          fontSize: "0.85rem",
-          color: "#a03020",
-        }}>
-          <strong>AI analysis failed:</strong> {state.analysisError}<br />
+        <div
+          style={{
+            background: "rgba(220, 80, 60, 0.08)",
+            border: "1px solid rgba(220, 80, 60, 0.3)",
+            borderRadius: "0.5rem",
+            padding: "0.75rem 1rem",
+            marginBottom: "1.5rem",
+            fontSize: "0.85rem",
+            color: "#a03020",
+          }}
+        >
+          <strong>AI analysis failed:</strong> {state.analysisError}
+          <br />
           Please fill in the details manually from the product label.
         </div>
       ) : (
-        <div style={{
-          background: "rgba(255, 200, 50, 0.1)",
-          border: "1px solid rgba(255, 200, 50, 0.4)",
-          borderRadius: "0.5rem",
-          padding: "0.75rem 1rem",
-          marginBottom: "1.5rem",
-          fontSize: "0.85rem",
-          color: "#806000",
-        }}>
-          <strong>AI isn't perfect!</strong> Fields marked "AI — verify" were extracted from your
-          photos by Gemini. Please check them before saving, especially the calorie values.
+        <div
+          style={{
+            background: "rgba(255, 200, 50, 0.1)",
+            border: "1px solid rgba(255, 200, 50, 0.4)",
+            borderRadius: "0.5rem",
+            padding: "0.75rem 1rem",
+            marginBottom: "1.5rem",
+            fontSize: "0.85rem",
+            color: "#806000",
+          }}
+        >
+          <strong>AI isn't perfect!</strong> Fields marked "AI — verify" were
+          extracted from your photos by Gemini. Please check them before saving,
+          especially the calorie values.
         </div>
       )}
 
       {field("productName", "Product Name", true)}
       {field("caloriesPer100g", "Calories per 100g", true, "number")}
 
-      <p style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "1rem" }}>
+      <p
+        style={{
+          fontSize: "0.8rem",
+          color: "var(--color-text-muted)",
+          marginBottom: "1rem",
+        }}
+      >
         Optional — add macros if the label shows them:
       </p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem", marginBottom: "1rem" }}>
-        {(["proteinPer100g", "fatPer100g", "carbsPer100g"] as const).map((key) => (
-          <label key={key} style={{ display: "block" }}>
-            <div style={{ fontSize: "0.8rem", fontWeight: "600", marginBottom: "0.25rem" }}>
-              {{ proteinPer100g: "Protein (g)", fatPer100g: "Fat (g)", carbsPer100g: "Carbs (g)" }[key]}
-              <AiBadge field={key} />
-            </div>
-            <input
-              type="number"
-              value={state[key]}
-              onChange={(e) => setState((s) => ({ ...s, [key]: e.target.value }))}
-              style={{
-                width: "100%",
-                padding: "0.5rem 0.6rem",
-                border: "1.5px solid var(--color-border)",
-                borderRadius: "0.5rem",
-                fontSize: "0.95rem",
-                boxSizing: "border-box",
-              }}
-            />
-          </label>
-        ))}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr 1fr",
+          gap: "0.75rem",
+          marginBottom: "1rem",
+        }}
+      >
+        {(["proteinPer100g", "fatPer100g", "carbsPer100g"] as const).map(
+          (key) => (
+            <label key={key} style={{ display: "block" }}>
+              <div
+                style={{
+                  fontSize: "0.8rem",
+                  fontWeight: "600",
+                  marginBottom: "0.25rem",
+                }}
+              >
+                {
+                  {
+                    proteinPer100g: "Protein (g)",
+                    fatPer100g: "Fat (g)",
+                    carbsPer100g: "Carbs (g)",
+                  }[key]
+                }
+                <AiBadge field={key} />
+              </div>
+              <input
+                type="number"
+                value={state[key]}
+                onChange={(e) =>
+                  setState((s) => ({ ...s, [key]: e.target.value }))
+                }
+                style={{
+                  width: "100%",
+                  padding: "0.5rem 0.6rem",
+                  border: "1.5px solid var(--color-border)",
+                  borderRadius: "0.5rem",
+                  fontSize: "0.95rem",
+                  boxSizing: "border-box",
+                }}
+              />
+            </label>
+          ),
+        )}
       </div>
 
       {field("barcodeNumber", "Barcode Number")}
+      {field("countryOfOrigin", "Country of Origin")}
 
-      <div style={{ display: "flex", gap: "0.75rem", marginTop: "1.5rem", flexWrap: "wrap" }}>
-        <button onClick={onSave} disabled={!canSave || saving} className="btn-primary">
+      <div
+        style={{
+          display: "flex",
+          gap: "0.75rem",
+          marginTop: "1.5rem",
+          flexWrap: "wrap",
+        }}
+      >
+        <button
+          onClick={onSave}
+          disabled={!canSave || saving}
+          className="btn-primary"
+        >
           {saving ? "Saving..." : "Save to Database"}
         </button>
         <button
@@ -606,7 +836,13 @@ function ReviewStep({
 
 // ── STEP 4: SAVED ────────────────────────────────────────────────────────────
 
-function SavedStep({ productName, onAddAnother }: { productName: string; onAddAnother: () => void }) {
+function SavedStep({
+  productName,
+  onAddAnother,
+}: {
+  productName: string;
+  onAddAnother: () => void;
+}) {
   return (
     <div style={{ textAlign: "center", padding: "2rem 0" }}>
       <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>✅</div>
@@ -614,13 +850,113 @@ function SavedStep({ productName, onAddAnother }: { productName: string; onAddAn
       <p style={{ color: "var(--color-text-muted)", marginBottom: "2rem" }}>
         It's now in the foods database and will appear in ingredient search.
       </p>
-      <div style={{ display: "flex", gap: "1rem", justifyContent: "center", flexWrap: "wrap" }}>
+      <div
+        style={{
+          display: "flex",
+          gap: "1rem",
+          justifyContent: "center",
+          flexWrap: "wrap",
+        }}
+      >
         <button onClick={onAddAnother} className="btn-primary">
           Add Another Food
         </button>
-        <Link to="/diary" className="btn-secondary" style={{ display: "inline-block" }}>
+        <Link
+          to="/diary"
+          className="btn-secondary"
+          style={{ display: "inline-block" }}
+        >
           Go to My Diary
         </Link>
+      </div>
+    </div>
+  );
+}
+
+// ── DUPLICATE WARNING DIALOG ────────────────────────────────────────────────
+
+function DuplicateWarningDialog({
+  existing,
+  onCancel,
+}: {
+  existing: CustomFood;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+        padding: "1rem",
+      }}
+      onClick={onCancel}
+    >
+      <div
+        style={{
+          background: "var(--color-surface)",
+          borderRadius: "1rem",
+          padding: "1.5rem",
+          maxWidth: "420px",
+          width: "100%",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ fontSize: "2rem", textAlign: "center", marginBottom: "0.75rem" }}>
+          ⚠️
+        </div>
+        <h3 style={{ textAlign: "center", marginBottom: "0.5rem" }}>
+          Product Already Exists
+        </h3>
+        <p
+          style={{
+            fontSize: "0.9rem",
+            color: "var(--color-text-muted)",
+            textAlign: "center",
+            marginBottom: "1rem",
+          }}
+        >
+          A product named <strong>"{existing.name}"</strong> is already in the
+          database. You cannot add a duplicate entry.
+        </p>
+
+        <div
+          style={{
+            background: "var(--color-surface-alt, #f5f0eb)",
+            borderRadius: "0.5rem",
+            padding: "0.75rem 1rem",
+            marginBottom: "1.25rem",
+            fontSize: "0.85rem",
+          }}
+        >
+          <div><strong>Calories:</strong> {existing.caloriesPer100g} kcal / 100g</div>
+          {existing.proteinPer100g != null && (
+            <div><strong>Protein:</strong> {existing.proteinPer100g}g</div>
+          )}
+          {existing.fatPer100g != null && (
+            <div><strong>Fat:</strong> {existing.fatPer100g}g</div>
+          )}
+          {existing.carbsPer100g != null && (
+            <div><strong>Carbs:</strong> {existing.carbsPer100g}g</div>
+          )}
+          {existing.barcode && (
+            <div><strong>Barcode:</strong> {existing.barcode}</div>
+          )}
+          {existing.countryOfOrigin && (
+            <div><strong>Origin:</strong> {existing.countryOfOrigin}</div>
+          )}
+        </div>
+
+        <div style={{ textAlign: "center" }}>
+          <button onClick={onCancel} className="btn-primary">
+            Go Back
+          </button>
+        </div>
       </div>
     </div>
   );
