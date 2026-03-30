@@ -25,7 +25,8 @@ function RootLayout() {
   }
 
   const isDiary = path === "/" || path.startsWith("/diary");
-  const isAddFood = path.startsWith("/foods");
+  const isFoodsList = path === "/foods" || path === "/foods/";
+  const isAddFood = path === "/foods/add";
 
   return (
     <div className="app-wrapper">
@@ -43,6 +44,12 @@ function RootLayout() {
             className={isDiary ? "nav-link nav-link--active" : "nav-link"}
           >
             My Diary
+          </Link>
+          <Link
+            to="/foods"
+            className={isFoodsList ? "nav-link nav-link--active" : "nav-link"}
+          >
+            Foods
           </Link>
           <Link
             to="/foods/add"
