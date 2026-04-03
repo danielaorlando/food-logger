@@ -35,9 +35,15 @@ export async function addMealLog(payload: AddMealLogPayload): Promise<string> {
     totalCalories: payload.totalCalories,
     // Only include optional fields if they have values
     ...(payload.foodId ? { foodId: payload.foodId } : {}),
-    ...(payload.proteinPer100g !== undefined ? { proteinPer100g: payload.proteinPer100g } : {}),
-    ...(payload.fatPer100g !== undefined ? { fatPer100g: payload.fatPer100g } : {}),
-    ...(payload.carbsPer100g !== undefined ? { carbsPer100g: payload.carbsPer100g } : {}),
+    ...(payload.proteinPer100g !== undefined
+      ? { proteinPer100g: payload.proteinPer100g }
+      : {}),
+    ...(payload.fatPer100g !== undefined
+      ? { fatPer100g: payload.fatPer100g }
+      : {}),
+    ...(payload.carbsPer100g !== undefined
+      ? { carbsPer100g: payload.carbsPer100g }
+      : {}),
   });
   return docRef.id;
 }
@@ -66,25 +72,31 @@ export function subscribeDiaryForDay(
     orderBy("loggedAt", "asc"),
   );
 
-  return onSnapshot(q, (snapshot) => {
-    const entries: MealLogEntry[] = snapshot.docs.map((docSnap) => {
-      const data = docSnap.data();
-      return {
-        id: docSnap.id,
-        userId: data.userId as string,
-        dateKey: data.dateKey as string,
-        loggedAt: data.loggedAt?.toDate() ?? new Date(),
-        meal: data.meal as MealLogEntry["meal"],
-        foodId: data.foodId as string | undefined,
-        foodName: data.foodName as string,
-        caloriesPer100g: data.caloriesPer100g as number,
-        proteinPer100g: data.proteinPer100g as number | undefined,
-        fatPer100g: data.fatPer100g as number | undefined,
-        carbsPer100g: data.carbsPer100g as number | undefined,
-        portionGrams: data.portionGrams as number,
-        totalCalories: data.totalCalories as number,
-      };
-    });
-    onData(entries);
-  });
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const entries: MealLogEntry[] = snapshot.docs.map((docSnap) => {
+        const data = docSnap.data();
+        return {
+          id: docSnap.id,
+          userId: data.userId as string,
+          dateKey: data.dateKey as string,
+          loggedAt: data.loggedAt?.toDate() ?? new Date(),
+          meal: data.meal as MealLogEntry["meal"],
+          foodId: data.foodId as string | undefined,
+          foodName: data.foodName as string,
+          caloriesPer100g: data.caloriesPer100g as number,
+          proteinPer100g: data.proteinPer100g as number | undefined,
+          fatPer100g: data.fatPer100g as number | undefined,
+          carbsPer100g: data.carbsPer100g as number | undefined,
+          portionGrams: data.portionGrams as number,
+          totalCalories: data.totalCalories as number,
+        };
+      });
+      onData(entries);
+    },
+    (error) => {
+      console.error("Diary listener failed:", error);
+    },
+  );
 }

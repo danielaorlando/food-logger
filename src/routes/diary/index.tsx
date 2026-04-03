@@ -42,6 +42,7 @@ function DiaryPage() {
   const [portionGrams, setPortionGrams] = useState("100");
   const [selectedMeal, setSelectedMeal] = useState<MealType>("breakfast");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const dateKey = toDateKey(currentDate);
 
@@ -61,9 +62,12 @@ function DiaryPage() {
     setSaving(true);
     const totalCalories = calcPortionCalories(grams, selectedFood.caloriesPer100g);
 
-    await addMealLog({
+    // Optimistic update — show the entry immediately
+    const optimisticEntry: MealLogEntry = {
+      id: "temp-" + Date.now(),
       userId: user.uid,
       dateKey,
+      loggedAt: new Date(),
       meal: selectedMeal,
       foodName: selectedFood.name,
       caloriesPer100g: selectedFood.caloriesPer100g,
@@ -72,9 +76,31 @@ function DiaryPage() {
       carbsPer100g: selectedFood.carbsPer100g,
       portionGrams: grams,
       totalCalories,
-    });
+    };
+    setEntries((prev) => [...prev, optimisticEntry]);
+    setSaveError(null);
 
-    // Reset the form for the next entry
+    try {
+      await addMealLog({
+        userId: user.uid,
+        dateKey,
+        meal: selectedMeal,
+        foodName: selectedFood.name,
+        caloriesPer100g: selectedFood.caloriesPer100g,
+        proteinPer100g: selectedFood.proteinPer100g,
+        fatPer100g: selectedFood.fatPer100g,
+        carbsPer100g: selectedFood.carbsPer100g,
+        portionGrams: grams,
+        totalCalories,
+      });
+    } catch {
+      // Remove the optimistic entry and show error
+      setEntries((prev) => prev.filter((e) => e.id !== optimisticEntry.id));
+      setSaveError("Couldn't save to diary. Please try again.");
+      setTimeout(() => setSaveError(null), 4000);
+    }
+
+    // Reset the form — onSnapshot will replace optimistic entry with real data
     setSelectedFood(null);
     setPortionGrams("100");
     setSaving(false);
@@ -92,6 +118,20 @@ function DiaryPage() {
 
       {/* Date navigation */}
       <DateNav date={currentDate} onChange={setCurrentDate} />
+
+      {saveError && (
+        <div style={{
+          background: "#fdecea",
+          color: "#b71c1c",
+          padding: "0.75rem 1rem",
+          borderRadius: "0.5rem",
+          marginBottom: "1rem",
+          fontSize: "0.9rem",
+          fontWeight: "500",
+        }}>
+          {saveError}
+        </div>
+      )}
 
       {/* ── ADD FOOD FORM ─────────────────────────────────────────────────── */}
       <div style={{

@@ -17,38 +17,34 @@ import type { CustomFood, SubmitFoodPayload } from "../types/food";
 
 export type { CustomFood, SubmitFoodPayload };
 
+// ── CACHE ────────────────────────────────────────────────────────────────────
+let cachedFoods: CustomFood[] | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL_MS = 60_000; // 1 minute
+
+async function getCachedFoods(): Promise<CustomFood[]> {
+  const now = Date.now();
+  if (cachedFoods && now - cacheTimestamp < CACHE_TTL_MS) {
+    return cachedFoods;
+  }
+  cachedFoods = await getAllFoods();
+  cacheTimestamp = now;
+  return cachedFoods;
+}
+
 // ── SEARCH ───────────────────────────────────────────────────────────────────
-// Firestore doesn't support full-text search. We use a prefix search on
-// `nameLower` (a stored lowercase copy of the name) to find foods that
-// START WITH the query string.
+// Fetches all foods (cached) and filters client-side with .includes()
+// so that searching "sopa" matches "Knorr Sopa crema ..." anywhere in the name.
 
 export async function searchCustomFoods(searchQuery: string): Promise<CustomFood[]> {
   if (!searchQuery || searchQuery.trim().length < 2) return [];
 
   const queryLower = searchQuery.toLowerCase().trim();
-  const q = query(
-    collection(db, "foods"),
-    where("nameLower", ">=", queryLower),
-    where("nameLower", "<=", queryLower + "\uf8ff"),
-    orderBy("nameLower"),
-    limit(5),
-  );
+  const allFoods = await getCachedFoods();
 
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map((doc) => {
-    const data = doc.data();
-    return {
-      id: doc.id,
-      name: data.name as string,
-      caloriesPer100g: data.caloriesPer100g as number,
-      submittedBy: data.submittedBy as string,
-      createdAt: data.createdAt?.toDate() ?? new Date(),
-      proteinPer100g: data.proteinPer100g as number | undefined,
-      fatPer100g: data.fatPer100g as number | undefined,
-      carbsPer100g: data.carbsPer100g as number | undefined,
-      countryOfOrigin: data.countryOfOrigin as string | undefined,
-    };
-  });
+  return allFoods
+    .filter((f) => f.name.toLowerCase().includes(queryLower))
+    .slice(0, 5);
 }
 
 // ── SUBMIT ───────────────────────────────────────────────────────────────────
@@ -65,6 +61,7 @@ export async function submitCustomFood(payload: SubmitFoodPayload): Promise<stri
     ...(payload.carbsPer100g !== undefined ? { carbsPer100g: payload.carbsPer100g } : {}),
     ...(payload.countryOfOrigin ? { countryOfOrigin: payload.countryOfOrigin } : {}),
   });
+  cachedFoods = null; // invalidate cache so new food appears in search immediately
   return doc.id;
 }
 

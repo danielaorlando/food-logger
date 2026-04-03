@@ -114,14 +114,19 @@ export function FoodSearchInput({ onSelect }: Props) {
               right: "0.75rem",
               top: "50%",
               transform: "translateY(-50%)",
-              width: "16px",
-              height: "16px",
-              border: "2px solid var(--color-border)",
-              borderTopColor: "var(--color-accent)",
-              borderRadius: "50%",
-              animation: "spin 0.6s linear infinite",
             }}
-          />
+          >
+            <div
+              style={{
+                width: "16px",
+                height: "16px",
+                border: "2px solid var(--color-border)",
+                borderTopColor: "var(--color-accent)",
+                borderRadius: "50%",
+                animation: "spin 0.6s linear infinite",
+              }}
+            />
+          </div>
         )}
       </div>
 

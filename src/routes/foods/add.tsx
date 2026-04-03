@@ -164,9 +164,9 @@ function AddFoodPage() {
 
   return (
     <RequireAuth>
-      <h1 style={{ marginBottom: "0.25rem" }}>Add Food by Photo</h1>
+      <h1 style={{ marginBottom: "0.25rem" }}>Add Food</h1>
       <p style={{ color: "var(--color-text-muted)", marginBottom: "2rem" }}>
-        Take photos of a product and we'll extract the information for you.
+        Take photos of a product or enter the details manually.
       </p>
 
       <StepIndicator current={state.step} />
@@ -323,17 +323,25 @@ function UploadStep({
         />
       </div>
 
-      <button
-        onClick={onAnalyze}
-        disabled={!hasAnyPhoto}
-        className="btn-primary"
-        style={{
-          opacity: hasAnyPhoto ? 1 : 0.45,
-          cursor: hasAnyPhoto ? "pointer" : "not-allowed",
-        }}
-      >
-        Analyze Photos
-      </button>
+      <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+        <button
+          onClick={onAnalyze}
+          disabled={!hasAnyPhoto}
+          className="btn-primary"
+          style={{
+            opacity: hasAnyPhoto ? 1 : 0.45,
+            cursor: hasAnyPhoto ? "pointer" : "not-allowed",
+          }}
+        >
+          Analyze Photos
+        </button>
+        <button
+          onClick={() => setState((s) => ({ ...s, step: "review" }))}
+          className="btn-secondary"
+        >
+          Enter Manually
+        </button>
+      </div>
     </div>
   );
 }
