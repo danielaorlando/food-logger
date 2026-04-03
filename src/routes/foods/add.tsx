@@ -13,9 +13,6 @@ import { useAuth } from "../../context/AuthContext";
 import { extractFoodFromPhotos } from "../../utils/geminiVision";
 import { submitCustomFood, checkDuplicateFood } from "../../utils/foodsDb";
 import type { CustomFood } from "../../types/food";
-import { compressImage } from "../../utils/compressImage";
-import { getCountryFromBarcode } from "../../utils/gs1CountryLookup";
-import { BrowserMultiFormatReader } from "@zxing/browser";
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
@@ -33,13 +30,11 @@ interface WizardState {
   step: WizardStep;
   namePhoto: File | null;
   nutritionPhoto: File | null;
-  barcodePhoto: File | null;
   productName: string;
   caloriesPer100g: string;
   proteinPer100g: string;
   fatPer100g: string;
   carbsPer100g: string;
-  barcodeNumber: string;
   countryOfOrigin: string;
   analysisError: string | null;
   aiExtractedFields: Set<string>;
@@ -49,58 +44,21 @@ const INITIAL_STATE: WizardState = {
   step: "upload",
   namePhoto: null,
   nutritionPhoto: null,
-  barcodePhoto: null,
   productName: "",
   caloriesPer100g: "",
   proteinPer100g: "",
   fatPer100g: "",
   carbsPer100g: "",
-  barcodeNumber: "",
   countryOfOrigin: "",
   analysisError: null,
   aiExtractedFields: new Set(),
 };
 
-// ── BARCODE DECODE FROM STATIC IMAGE ────────────────────────────────────────
-
-async function decodeBarcodeFromFile(file: File): Promise<string | null> {
-  try {
-    // Convert HEIC/PNG/etc. to JPEG so the browser can render it in an <img>
-    const converted = await compressImage(file);
-    const reader = new BrowserMultiFormatReader();
-    const img = new Image();
-    const objectUrl = URL.createObjectURL(converted);
-    img.src = objectUrl;
-
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error("Image failed to load"));
-    });
-
-    const decodePromise = reader
-      .decodeFromImageElement(img)
-      .then((r) => r.getText());
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Barcode decode timed out")), 6000),
-    );
-
-    const result = await Promise.race([decodePromise, timeoutPromise]);
-    URL.revokeObjectURL(objectUrl);
-    return result;
-  } catch {
-    return null;
-  }
-}
-
 async function runAnalysisWithTimeout(
   namePhoto: File | null,
   nutritionPhoto: File | null,
-  barcodePhoto: File | null,
 ) {
-  const analysisPromise = Promise.allSettled([
-    extractFoodFromPhotos(namePhoto, nutritionPhoto),
-    barcodePhoto ? decodeBarcodeFromFile(barcodePhoto) : Promise.resolve(null),
-  ]);
+  const analysisPromise = extractFoodFromPhotos(namePhoto, nutritionPhoto);
 
   const timeoutPromise = new Promise<never>((_, reject) =>
     setTimeout(
@@ -130,15 +88,11 @@ function AddFoodPage() {
   async function runAnalysis() {
     setState((s) => ({ ...s, step: "analyzing", analysisError: null }));
 
-    let results: [
-      PromiseSettledResult<Awaited<ReturnType<typeof extractFoodFromPhotos>>>,
-      PromiseSettledResult<string | null>,
-    ];
+    let gemini: Awaited<ReturnType<typeof extractFoodFromPhotos>> | null = null;
     try {
-      results = await runAnalysisWithTimeout(
+      gemini = await runAnalysisWithTimeout(
         state.namePhoto,
         state.nutritionPhoto,
-        state.barcodePhoto,
       );
     } catch (err) {
       setState((s) => ({
@@ -151,50 +105,24 @@ function AddFoodPage() {
       return;
     }
 
-    const [geminiResult, barcodeResult] = results;
-    const gemini =
-      geminiResult.status === "fulfilled" ? geminiResult.value : null;
-    const barcode =
-      barcodeResult.status === "fulfilled" ? barcodeResult.value : null;
-
-    // If Gemini failed, show the error on the analyzing step so the user
-    // knows what happened and can retry or continue manually.
-    const geminiError =
-      geminiResult.status === "rejected"
-        ? geminiResult.reason instanceof Error
-          ? geminiResult.reason.message
-          : "AI analysis failed."
-        : null;
-
-    if (geminiError && !barcode) {
-      // Both AI and barcode failed (or no barcode photo) — stay on analyzing step with error
-      setState((s) => ({ ...s, analysisError: geminiError }));
-      return;
-    }
-
     const aiExtractedFields = new Set<string>();
     if (gemini?.name) aiExtractedFields.add("productName");
     if (gemini?.caloriesPer100g) aiExtractedFields.add("caloriesPer100g");
     if (gemini?.proteinPer100g) aiExtractedFields.add("proteinPer100g");
     if (gemini?.fatPer100g) aiExtractedFields.add("fatPer100g");
     if (gemini?.carbsPer100g) aiExtractedFields.add("carbsPer100g");
-    if (barcode) aiExtractedFields.add("barcodeNumber");
 
-    // Country of origin: prefer Gemini label extraction, fallback to GS1 barcode prefix
-    const countryOfOrigin =
-      gemini?.countryOfOrigin || (barcode ? getCountryFromBarcode(barcode) : null) || "";
+    const countryOfOrigin = gemini?.countryOfOrigin || "";
     if (countryOfOrigin) aiExtractedFields.add("countryOfOrigin");
 
     setState((s) => ({
       ...s,
       step: "review",
-      analysisError: geminiError,
       productName: gemini?.name ?? "",
       caloriesPer100g: gemini?.caloriesPer100g?.toString() ?? "",
       proteinPer100g: gemini?.proteinPer100g?.toString() ?? "",
       fatPer100g: gemini?.fatPer100g?.toString() ?? "",
       carbsPer100g: gemini?.carbsPer100g?.toString() ?? "",
-      barcodeNumber: barcode ?? "",
       countryOfOrigin,
       aiExtractedFields,
     }));
@@ -208,10 +136,7 @@ function AddFoodPage() {
     setSaving(true);
 
     // Check for duplicates first
-    const existing = await checkDuplicateFood(
-      state.productName,
-      state.barcodeNumber.trim() || undefined,
-    );
+    const existing = await checkDuplicateFood(state.productName);
 
     if (existing) {
       setSaving(false);
@@ -224,7 +149,6 @@ function AddFoodPage() {
       name: state.productName,
       caloriesPer100g: kcal,
       userId: user.uid,
-      barcode: state.barcodeNumber.trim() || undefined,
       proteinPer100g: state.proteinPer100g
         ? parseFloat(state.proteinPer100g)
         : undefined,
@@ -367,8 +291,7 @@ function UploadStep({
   setState: React.Dispatch<React.SetStateAction<WizardState>>;
   onAnalyze: () => void;
 }) {
-  const hasAnyPhoto =
-    state.namePhoto || state.nutritionPhoto || state.barcodePhoto;
+  const hasAnyPhoto = state.namePhoto || state.nutritionPhoto;
 
   return (
     <div>
@@ -397,13 +320,6 @@ function UploadStep({
           file={state.nutritionPhoto}
           onSelect={(f) => setState((s) => ({ ...s, nutritionPhoto: f }))}
           onRemove={() => setState((s) => ({ ...s, nutritionPhoto: null }))}
-        />
-        <PhotoZone
-          label="Photo 3: Barcode (optional)"
-          hint="The barcode on the packaging — enables scanning later"
-          file={state.barcodePhoto}
-          onSelect={(f) => setState((s) => ({ ...s, barcodePhoto: f }))}
-          onRemove={() => setState((s) => ({ ...s, barcodePhoto: null }))}
         />
       </div>
 
@@ -806,7 +722,6 @@ function ReviewStep({
         )}
       </div>
 
-      {field("barcodeNumber", "Barcode Number")}
       {field("countryOfOrigin", "Country of Origin")}
 
       <div
@@ -944,9 +859,6 @@ function DuplicateWarningDialog({
           )}
           {existing.carbsPer100g != null && (
             <div><strong>Carbs:</strong> {existing.carbsPer100g}g</div>
-          )}
-          {existing.barcode && (
-            <div><strong>Barcode:</strong> {existing.barcode}</div>
           )}
           {existing.countryOfOrigin && (
             <div><strong>Origin:</strong> {existing.countryOfOrigin}</div>

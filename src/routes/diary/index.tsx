@@ -8,24 +8,20 @@
 //   - Navigate between days
 //   - Delete individual entries
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { createRoute } from "@tanstack/react-router";
 import { Route as rootRoute } from "../__root";
 import { RequireAuth } from "../../components/RequireAuth";
 import { useAuth } from "../../context/AuthContext";
 import { FoodSearchInput } from "../../components/FoodSearchInput";
-import { BarcodeScannerOverlay } from "../../components/BarcodeScannerOverlay";
 import { MealEntry } from "../../components/MealEntry";
 import { DailySummary } from "../../components/DailySummary";
 import { DateNav } from "../../components/DateNav";
 import { subscribeDiaryForDay, addMealLog } from "../../utils/diaryDb";
 import { toDateKey } from "../../utils/dateHelpers";
 import { calcPortionCalories } from "../../utils/calorieCalculator";
-import { lookupBarcode } from "../../utils/barcodeApi";
 import type { MealLogEntry, MealType } from "../../types/diary";
 import type { NutritionResult } from "../../utils/nutritionApi";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faBarcode } from "@fortawesome/free-solid-svg-icons";
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
@@ -46,8 +42,6 @@ function DiaryPage() {
   const [portionGrams, setPortionGrams] = useState("100");
   const [selectedMeal, setSelectedMeal] = useState<MealType>("breakfast");
   const [saving, setSaving] = useState(false);
-  const [showScanner, setShowScanner] = useState(false);
-  const [scanError, setScanError] = useState<string | null>(null);
 
   const dateKey = toDateKey(currentDate);
 
@@ -86,18 +80,6 @@ function DiaryPage() {
     setSaving(false);
   }
 
-  const handleBarcodeScan = useCallback(async (barcode: string) => {
-    setShowScanner(false);
-    setScanError(null);
-
-    const result = await lookupBarcode(barcode);
-    if (result) {
-      setSelectedFood(result);
-    } else {
-      setScanError(`No food found for barcode "${barcode}". Add it first via the Foods Database.`);
-    }
-  }, []);
-
   // Group entries by meal for display
   const entriesByMeal = MEAL_ORDER.map((meal) => ({
     meal,
@@ -122,41 +104,8 @@ function DiaryPage() {
         <h2 style={{ margin: "0 0 1rem", fontSize: "1rem", fontWeight: "600" }}>Log Food</h2>
 
         {!selectedFood ? (
-          // Step 1: Search for a food or scan a barcode
-          <>
-            <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-start" }}>
-              <div style={{ flex: 1 }}>
-                <FoodSearchInput onSelect={setSelectedFood} />
-              </div>
-              <button
-                onClick={() => { setScanError(null); setShowScanner(true); }}
-                className="btn-secondary"
-                style={{
-                  padding: "0.6rem 0.75rem",
-                  fontSize: "1.2rem",
-                  lineHeight: 1,
-                  flexShrink: 0,
-                  marginTop: "0",
-                }}
-                title="Scan barcode"
-              >
-                <FontAwesomeIcon icon={faBarcode} />
-              </button>
-            </div>
-            {scanError && (
-              <div style={{
-                marginTop: "0.75rem",
-                padding: "0.6rem 0.75rem",
-                background: "rgba(220, 80, 60, 0.08)",
-                border: "1px solid rgba(220, 80, 60, 0.3)",
-                borderRadius: "0.5rem",
-                fontSize: "0.85rem",
-                color: "#a03020",
-              }}>
-                {scanError}
-              </div>
-            )}
-          </>
+          // Step 1: Search for a food
+          <FoodSearchInput onSelect={setSelectedFood} />
         ) : (
           // Step 2: Enter portion and meal, then add
           <div>
@@ -283,12 +232,6 @@ function DiaryPage() {
 
           <DailySummary entries={entries} />
         </>
-      )}
-      {showScanner && (
-        <BarcodeScannerOverlay
-          onResult={handleBarcodeScan}
-          onClose={() => setShowScanner(false)}
-        />
       )}
     </RequireAuth>
   );

@@ -179,11 +179,6 @@ function FoodCard({ food }: { food: CustomFood }) {
               <strong>Carbs:</strong> {food.carbsPer100g}g
             </div>
           )}
-          {food.barcode && (
-            <div>
-              <strong>Barcode:</strong> {food.barcode}
-            </div>
-          )}
           {food.countryOfOrigin && (
             <div>
               <strong>Origin:</strong> {food.countryOfOrigin}

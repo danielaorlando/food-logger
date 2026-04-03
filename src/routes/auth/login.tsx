@@ -5,9 +5,12 @@ import {
   createUserWithEmailAndPassword,
   updateProfile,
   signInWithPopup,
+  signInWithCredential,
   GoogleAuthProvider,
   sendPasswordResetEmail,
 } from "firebase/auth";
+import { Capacitor } from "@capacitor/core";
+import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
 import { auth } from "../../firebase";
 import { Route as rootRoute } from "../__root";
 
@@ -33,8 +36,16 @@ function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      if (Capacitor.isNativePlatform()) {
+        // Native: use device's Google Sign-In SDK
+        const result = await FirebaseAuthentication.signInWithGoogle();
+        const credential = GoogleAuthProvider.credential(result.credential?.idToken);
+        await signInWithCredential(auth, credential);
+      } else {
+        // Web: use popup flow
+        const provider = new GoogleAuthProvider();
+        await signInWithPopup(auth, provider);
+      }
       navigate({ to: "/diary" });
     } catch (err: unknown) {
       setError(getFriendlyError((err as { code?: string }).code));

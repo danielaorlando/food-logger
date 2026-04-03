@@ -43,7 +43,10 @@ export function FoodSearchInput({ onSelect }: Props) {
   // Close dropdown when clicking outside
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+      if (
+        wrapperRef.current &&
+        !wrapperRef.current.contains(e.target as Node)
+      ) {
         setOpen(false);
       }
     }
@@ -70,15 +73,17 @@ export function FoodSearchInput({ onSelect }: Props) {
     };
     const s = styles[source] ?? styles.custom;
     return (
-      <span style={{
-        fontSize: "0.7rem",
-        background: s.bg,
-        color: s.color,
-        borderRadius: "0.25rem",
-        padding: "0.1rem 0.35rem",
-        fontWeight: "600",
-        flexShrink: 0,
-      }}>
+      <span
+        style={{
+          fontSize: "0.7rem",
+          background: s.bg,
+          color: s.color,
+          borderRadius: "0.25rem",
+          padding: "0.1rem 0.35rem",
+          fontWeight: "600",
+          flexShrink: 0,
+        }}
+      >
         {labels[source] ?? source}
       </span>
     );
@@ -103,36 +108,40 @@ export function FoodSearchInput({ onSelect }: Props) {
           }}
         />
         {loading && (
-          <div style={{
-            position: "absolute",
-            right: "0.75rem",
-            top: "50%",
-            transform: "translateY(-50%)",
-            width: "16px",
-            height: "16px",
-            border: "2px solid var(--color-border)",
-            borderTopColor: "var(--color-accent)",
-            borderRadius: "50%",
-            animation: "spin 0.6s linear infinite",
-          }} />
+          <div
+            style={{
+              position: "absolute",
+              right: "0.75rem",
+              top: "50%",
+              transform: "translateY(-50%)",
+              width: "16px",
+              height: "16px",
+              border: "2px solid var(--color-border)",
+              borderTopColor: "var(--color-accent)",
+              borderRadius: "50%",
+              animation: "spin 0.6s linear infinite",
+            }}
+          />
         )}
       </div>
 
       {open && (
-        <div style={{
-          position: "absolute",
-          top: "calc(100% + 4px)",
-          left: 0,
-          right: 0,
-          background: "var(--color-surface)",
-          border: "1.5px solid var(--color-border)",
-          borderRadius: "0.6rem",
-          boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-          zIndex: 50,
-          overflow: "hidden",
-          maxHeight: "280px",
-          overflowY: "auto",
-        }}>
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            left: 0,
+            right: 0,
+            background: "var(--color-surface)",
+            border: "1.5px solid var(--color-border)",
+            borderRadius: "0.6rem",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+            zIndex: 50,
+            overflow: "hidden",
+            maxHeight: "280px",
+            overflowY: "auto",
+          }}
+        >
           {results.map((result, i) => (
             <button
               key={i}
@@ -145,17 +154,28 @@ export function FoodSearchInput({ onSelect }: Props) {
                 gap: "0.5rem",
                 padding: "0.65rem 0.85rem",
                 border: "none",
-                borderBottom: i < results.length - 1 ? "1px solid var(--color-border)" : "none",
+                borderBottom:
+                  i < results.length - 1
+                    ? "1px solid var(--color-border)"
+                    : "none",
                 background: "none",
                 textAlign: "left",
                 cursor: "pointer",
                 fontSize: "0.9rem",
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--color-surface-alt)")}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.background = "var(--color-surface-alt)")
+              }
               onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
             >
               <span style={{ flex: 1 }}>{result.name}</span>
-              <span style={{ color: "var(--color-text-muted)", fontSize: "0.8rem", flexShrink: 0 }}>
+              <span
+                style={{
+                  color: "var(--color-text-muted)",
+                  fontSize: "0.8rem",
+                  flexShrink: 0,
+                }}
+              >
                 {result.caloriesPer100g} kcal/100g
               </span>
               {sourceBadge(result.source)}

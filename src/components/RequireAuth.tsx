@@ -12,7 +12,8 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
     }
   }, [user, loading, navigate]);
 
-  if (loading || !user) return null;
+  if (loading) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "4rem" }}>Loading…</div>;
+  if (!user) return null;
 
   return <>{children}</>;
 }

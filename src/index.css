@@ -1,4 +1,24 @@
 /* ═══════════════════════════════════════════════════════════
+   SELF-HOSTED FONTS
+   ═══════════════════════════════════════════════════════════ */
+
+@font-face {
+  font-family: "Lato";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/lato-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Lato";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/lato-700.woff2") format("woff2");
+}
+
+/* ═══════════════════════════════════════════════════════════
    CSS VARIABLES — change these to retheme the whole app
    ═══════════════════════════════════════════════════════════ */
 
@@ -32,6 +52,8 @@ body {
   color: var(--color-text);
   min-height: 100vh;
   overflow-x: hidden;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 a {
