@@ -4,3 +4,4 @@ dist
 .env.local
 .firebase/
 firestore-debug.log
+documentation/
