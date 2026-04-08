@@ -4,4 +4,15 @@ dist
 .env.local
 .firebase/
 firestore-debug.log
+firebase-debug.log
+*.log
 documentation/
+
+# macOS
+.DS_Store
+
+# Claude Code local instructions
+CLAUDE.md
+
+# Firebase iOS config — contains project identifiers, kept out of public repo
+ios/App/App/GoogleService-Info.plist
