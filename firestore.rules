@@ -7,6 +7,19 @@ service cloud.firestore {
       allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
     }
 
+    // Users can only read/write their own daily energy data
+    match /daily_energy/{docId} {
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      allow update: if request.auth != null && request.auth.uid == resource.data.userId
+                    && request.auth.uid == request.resource.data.userId;
+    }
+
+    // Users can only read/write their own profile (calorie goal)
+    match /user_profiles/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
     // Any authenticated user can read foods; only the submitter can write
     match /foods/{foodId} {
       allow read: if request.auth != null;

@@ -27,7 +27,7 @@ export const auth = Capacitor.isNativePlatform()
   : getAuth(app);
 export const db = getFirestore(app);
 
-if (import.meta.env.DEV) {
+if (import.meta.env.VITE_USE_EMULATOR === "true") {
   connectAuthEmulator(auth, "http://localhost:9099", { disableWarnings: true });
   connectFirestoreEmulator(db, "localhost", 8080);
 }

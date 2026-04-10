@@ -22,6 +22,14 @@ import { toDateKey } from "../../utils/dateHelpers";
 import { calcPortionCalories } from "../../utils/calorieCalculator";
 import type { MealLogEntry, MealType } from "../../types/diary";
 import type { NutritionResult } from "../../utils/nutritionApi";
+import {
+  isHealthKitAvailable,
+  requestHealthKitPermissions,
+  syncHealthDataForDay,
+} from "../../utils/healthKit";
+import { subscribeDailyEnergy, subscribeCalorieGoal } from "../../utils/healthDb";
+import { CalorieGoalEditor } from "../../components/CalorieGoalEditor";
+import type { DailyEnergyData, UserProfile } from "../../types/health";
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
@@ -44,6 +52,13 @@ function DiaryPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // HealthKit energy data for the current day (iOS only, null on web)
+  const [energyData, setEnergyData] = useState<DailyEnergyData | null>(null);
+
+  // Calorie goal from user_profiles Firestore collection
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [showGoalEditor, setShowGoalEditor] = useState(false);
+
   const dateKey = toDateKey(currentDate);
 
   // Real-time listener — re-runs whenever the user or date changes
@@ -53,6 +68,37 @@ function DiaryPage() {
     const unsubscribe = subscribeDiaryForDay(user.uid, dateKey, setEntries);
     return unsubscribe; // cleanup: stop listening when date or user changes
   }, [user, dateKey]);
+
+  // Energy data: subscribe to Firestore (all platforms) + sync from HealthKit (iOS only)
+  useEffect(() => {
+    if (!user) {
+      setEnergyData(null);
+      return;
+    }
+
+    // 1. Listen to Firestore for energy data (works on web AND iOS)
+    const unsubEnergy = subscribeDailyEnergy(user.uid, dateKey, setEnergyData);
+
+    // 2. On iOS, sync fresh HealthKit data → Firestore (no-op on web)
+    if (isHealthKitAvailable()) {
+      requestHealthKitPermissions().then(() => {
+        syncHealthDataForDay(user.uid, dateKey);
+      });
+    }
+
+    return unsubEnergy; // cleanup: stop listening when date or user changes
+  }, [user, dateKey]);
+
+  // Calorie goal: subscribe to user_profiles (same goal every day, so no dateKey dependency)
+  useEffect(() => {
+    if (!user) {
+      setUserProfile(null);
+      return;
+    }
+
+    const unsubGoal = subscribeCalorieGoal(user.uid, setUserProfile);
+    return unsubGoal;
+  }, [user]);
 
   async function handleAddEntry() {
     if (!user || !selectedFood || !portionGrams) return;
@@ -241,6 +287,15 @@ function DiaryPage() {
         )}
       </div>
 
+      {/* ── CALORIE GOAL EDITOR ─────────────────────────────────────────── */}
+      {showGoalEditor && user && (
+        <CalorieGoalEditor
+          userId={user.uid}
+          currentGoal={userProfile?.calorieGoal ?? null}
+          onClose={() => setShowGoalEditor(false)}
+        />
+      )}
+
       {/* ── DIARY ENTRIES ─────────────────────────────────────────────────── */}
       {entries.length === 0 ? (
         <div style={{ textAlign: "center", padding: "3rem 1rem", color: "var(--color-text-muted)" }}>
@@ -270,7 +325,12 @@ function DiaryPage() {
             </div>
           ))}
 
-          <DailySummary entries={entries} />
+          <DailySummary
+            entries={entries}
+            energyData={energyData}
+            calorieGoal={userProfile?.calorieGoal ?? null}
+            onEditGoal={() => setShowGoalEditor(true)}
+          />
         </>
       )}
     </RequireAuth>
