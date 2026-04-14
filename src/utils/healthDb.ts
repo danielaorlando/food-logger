@@ -80,10 +80,27 @@ export async function setCalorieGoal(
     userId,
     calorieGoal: goal,
     updatedAt: serverTimestamp(),
-  });
+  }, { merge: true });
 }
 
-export function subscribeCalorieGoal(
+// ── UPDATE PROFILE ──────────────────────────────────────────────────────────
+//
+// Generic function for saving any combination of profile fields.
+// Uses { merge: true } so updating one field (e.g. height) won't erase
+// other fields (e.g. calorie goal, weight).
+
+export async function updateUserProfile(
+  userId: string,
+  fields: Partial<Omit<UserProfile, "userId" | "updatedAt">>,
+): Promise<void> {
+  await setDoc(doc(db, "user_profiles", userId), {
+    userId,
+    ...fields,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+export function subscribeUserProfile(
   userId: string,
   onData: (profile: UserProfile | null) => void,
 ): Unsubscribe {
@@ -99,10 +116,18 @@ export function subscribeCalorieGoal(
         userId: d.userId as string,
         calorieGoal: d.calorieGoal as number,
         updatedAt: d.updatedAt?.toDate() ?? new Date(),
+        // New profile fields — optional, so they may be undefined
+        dateOfBirth: d.dateOfBirth as string | undefined,
+        sex: d.sex as UserProfile["sex"],
+        currentWeightKg: d.currentWeightKg as number | undefined,
+        heightCm: d.heightCm as number | undefined,
+        overallGoal: d.overallGoal as UserProfile["overallGoal"],
+        goalWeightKg: d.goalWeightKg as number | undefined,
+        weeklyRateKg: d.weeklyRateKg as number | undefined,
       });
     },
     (error) => {
-      console.error("Calorie goal listener failed:", error);
+      console.error("User profile listener failed:", error);
     },
   );
 }

@@ -8,6 +8,9 @@ firebase-debug.log
 *.log
 documentation/
 
+# Scratch/source icon files — not shipped with the app
+icons/
+
 # macOS
 .DS_Store
 

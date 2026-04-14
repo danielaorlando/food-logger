@@ -7,6 +7,7 @@ import { Route as loginRoute } from "./auth/login";
 import { Route as addFoodRoute } from "./foods/add";
 import { Route as foodsListRoute } from "./foods/index";
 import { Route as diaryRoute } from "./diary/index";
+import { Route as profileRoute } from "./profile/index";
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
@@ -14,6 +15,7 @@ const routeTree = rootRoute.addChildren([
   addFoodRoute,
   foodsListRoute,
   diaryRoute,
+  profileRoute,
 ]);
 
 export { routeTree };

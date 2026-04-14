@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef } from "react";
 import {
   createRootRoute,
   Link,
@@ -5,9 +6,12 @@ import {
   useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
+import { Capacitor } from "@capacitor/core";
 import { signOut } from "firebase/auth";
 import { auth } from "../firebase";
 import { useAuth } from "../context/AuthContext";
+
+const isNative = Capacitor.isNativePlatform();
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -19,7 +23,23 @@ function RootLayout() {
   const navigate = useNavigate();
   const { user, loading } = useAuth();
 
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking anywhere outside it
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [dropdownOpen]);
+
   async function handleLogout() {
+    setDropdownOpen(false);
     await signOut(auth);
     navigate({ to: "/" });
   }
@@ -28,47 +48,85 @@ function RootLayout() {
   const isFoodsList = path === "/foods" || path === "/foods/";
   const isAddFood = path === "/foods/add";
 
+  const navLinks = (
+    <>
+      <Link
+        to="/diary"
+        className={isDiary ? "nav-link nav-link--active" : "nav-link"}
+        style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.2rem" }}
+      >
+        <img src="/Diary-Icon.png" alt="" style={{ width: isNative ? "2.5rem" : "1.4rem", height: isNative ? "2.5rem" : "1.4rem", objectFit: "contain" }} />
+        <span style={isNative ? { fontSize: "0.65rem" } : undefined}>My Diary</span>
+      </Link>
+      <Link
+        to="/foods"
+        className={isFoodsList ? "nav-link nav-link--active" : "nav-link"}
+        style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.2rem" }}
+      >
+        <img src="/Plate-Icon.png" alt="" style={{ width: isNative ? "2.5rem" : "1.4rem", height: isNative ? "2.5rem" : "1.4rem", objectFit: "contain" }} />
+        <span style={isNative ? { fontSize: "0.65rem" } : undefined}>Foods</span>
+      </Link>
+      <Link
+        to="/foods/add"
+        className={isAddFood ? "nav-link nav-link--active" : "nav-link"}
+        style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.2rem" }}
+      >
+        <img src="/AddFood-Icon.png" alt="" style={{ width: isNative ? "2.5rem" : "1.4rem", height: isNative ? "2.5rem" : "1.4rem", objectFit: "contain" }} />
+        <span style={isNative ? { fontSize: "0.65rem" } : undefined}>Add Food</span>
+      </Link>
+    </>
+  );
+
   return (
-    <div className="app-wrapper">
+    <div className={isNative ? "app-wrapper app-wrapper--native" : "app-wrapper"}>
       <header className="site-header">
         {/* LEFT — App name */}
         <Link to="/" className="header-left">
-          <span className="header-logo">🥗</span>
-          <span>Food Logger</span>
+          <img
+            src="/icon.png"
+            alt="Bite Balance"
+            className="header-logo"
+            style={{
+              width: isNative ? "2.5rem" : "3rem",
+              height: isNative ? "2.5rem" : "3rem",
+              borderRadius: "0.25rem",
+            }}
+          />
+          {!isNative && <span>Bite Balance</span>}
         </Link>
 
-        {/* CENTER — Navigation */}
-        <nav className="site-nav">
-          <Link
-            to="/diary"
-            className={isDiary ? "nav-link nav-link--active" : "nav-link"}
-          >
-            My Diary
-          </Link>
-          <Link
-            to="/foods"
-            className={isFoodsList ? "nav-link nav-link--active" : "nav-link"}
-          >
-            Foods
-          </Link>
-          <Link
-            to="/foods/add"
-            className={isAddFood ? "nav-link nav-link--active" : "nav-link"}
-          >
-            Add Food
-          </Link>
-        </nav>
+        {/* CENTER — Navigation (web only, on iOS it's at the bottom) */}
+        {!isNative && <nav className="site-nav">{navLinks}</nav>}
 
         {/* RIGHT — Auth */}
-        <div className="header-right">
+        <div className="header-right" ref={dropdownRef}>
           {loading ? null : user ? (
             <>
-              <span style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
-                Hi, {user.displayName?.split(" ")[0] ?? user.email}
-              </span>
-              <button className="logout-btn" onClick={handleLogout}>
-                Log out
+              <button
+                className="header-dropdown-trigger"
+                onClick={() => setDropdownOpen((prev) => !prev)}
+              >
+                <img src="/Avatar-Icon.png" alt="" style={{ width: "1.4rem", height: "1.4rem", objectFit: "contain" }} />
+                <span>Hi, {user.displayName?.split(" ")[0] ?? user.email}</span>
               </button>
+
+              {dropdownOpen && (
+                <div className="header-dropdown">
+                  <Link
+                    to="/profile"
+                    className="header-dropdown-item"
+                    onClick={() => setDropdownOpen(false)}
+                  >
+                    My Profile
+                  </Link>
+                  <button
+                    className="header-dropdown-item"
+                    onClick={handleLogout}
+                  >
+                    Log out
+                  </button>
+                </div>
+              )}
             </>
           ) : (
             <Link to="/auth/login" className="login-link">
@@ -83,6 +141,9 @@ function RootLayout() {
           <Outlet />
         </div>
       </main>
+
+      {/* Bottom tab bar — iOS only */}
+      {isNative && <nav className="bottom-nav">{navLinks}</nav>}
     </div>
   );
 }

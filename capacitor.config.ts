@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.danielaorlando.foodlogger',
-  appName: 'Food Logger',
+  appName: 'Bite Balance',
   webDir: 'dist',
   ios: {
     backgroundColor: '#fbf8f4',

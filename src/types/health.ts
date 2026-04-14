@@ -21,9 +21,20 @@ export interface DailyEnergyData {
   lastSyncedAt: Date;
 }
 
+export type Sex = "male" | "female";
+export type WeightGoal = "lose" | "maintain" | "gain";
+
 export interface UserProfile {
   userId: string;
   // Daily calorie target (e.g., 2000). Used to calculate "Calories Remaining".
   calorieGoal: number;
   updatedAt: Date;
+  // ── New profile fields ──────────────────────────
+  dateOfBirth?: string;      // "DD-MM-YYYY" format
+  sex?: Sex;
+  currentWeightKg?: number;
+  heightCm?: number;
+  overallGoal?: WeightGoal;
+  goalWeightKg?: number;
+  weeklyRateKg?: number;     // e.g. 0.45 means 0.45 kg/week
 }

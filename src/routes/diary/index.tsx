@@ -27,8 +27,12 @@ import {
   requestHealthKitPermissions,
   syncHealthDataForDay,
 } from "../../utils/healthKit";
-import { subscribeDailyEnergy, subscribeCalorieGoal } from "../../utils/healthDb";
+import {
+  subscribeDailyEnergy,
+  subscribeUserProfile,
+} from "../../utils/healthDb";
 import { CalorieGoalEditor } from "../../components/CalorieGoalEditor";
+import { CalorieSummaryCard } from "../../components/CalorieSummaryCard";
 import type { DailyEnergyData, UserProfile } from "../../types/health";
 
 export const Route = createRoute({
@@ -46,7 +50,9 @@ function DiaryPage() {
   const [entries, setEntries] = useState<MealLogEntry[]>([]);
 
   // Selected food from search — shown in the "add portion" form
-  const [selectedFood, setSelectedFood] = useState<NutritionResult | null>(null);
+  const [selectedFood, setSelectedFood] = useState<NutritionResult | null>(
+    null,
+  );
   const [portionGrams, setPortionGrams] = useState("100");
   const [selectedMeal, setSelectedMeal] = useState<MealType>("breakfast");
   const [saving, setSaving] = useState(false);
@@ -96,7 +102,7 @@ function DiaryPage() {
       return;
     }
 
-    const unsubGoal = subscribeCalorieGoal(user.uid, setUserProfile);
+    const unsubGoal = subscribeUserProfile(user.uid, setUserProfile);
     return unsubGoal;
   }, [user]);
 
@@ -106,7 +112,10 @@ function DiaryPage() {
     if (isNaN(grams) || grams <= 0) return;
 
     setSaving(true);
-    const totalCalories = calcPortionCalories(grams, selectedFood.caloriesPer100g);
+    const totalCalories = calcPortionCalories(
+      grams,
+      selectedFood.caloriesPer100g,
+    );
 
     // Optimistic update — show the entry immediately
     const optimisticEntry: MealLogEntry = {
@@ -152,6 +161,9 @@ function DiaryPage() {
     setSaving(false);
   }
 
+  // Total calories eaten today — used by the summary ring and DailySummary
+  const totalCaloriesEaten = entries.reduce((sum, e) => sum + e.totalCalories, 0);
+
   // Group entries by meal for display
   const entriesByMeal = MEAL_ORDER.map((meal) => ({
     meal,
@@ -165,29 +177,52 @@ function DiaryPage() {
       {/* Date navigation */}
       <DateNav date={currentDate} onChange={setCurrentDate} />
 
+      {/* Calorie ring summary — always visible, even with 0 entries */}
+      <CalorieSummaryCard
+        caloriesEaten={totalCaloriesEaten}
+        energyData={energyData}
+        calorieGoal={userProfile?.calorieGoal ?? 2000}
+        onEditGoal={() => setShowGoalEditor(true)}
+      />
+
+      {/* ── CALORIE GOAL EDITOR ─────────────────────────────────────────── */}
+      {showGoalEditor && user && (
+        <CalorieGoalEditor
+          userId={user.uid}
+          currentGoal={userProfile?.calorieGoal ?? null}
+          onClose={() => setShowGoalEditor(false)}
+        />
+      )}
+
       {saveError && (
-        <div style={{
-          background: "#fdecea",
-          color: "#b71c1c",
-          padding: "0.75rem 1rem",
-          borderRadius: "0.5rem",
-          marginBottom: "1rem",
-          fontSize: "0.9rem",
-          fontWeight: "500",
-        }}>
+        <div
+          style={{
+            background: "#fdecea",
+            color: "#b71c1c",
+            padding: "0.75rem 1rem",
+            borderRadius: "0.5rem",
+            marginBottom: "1rem",
+            fontSize: "0.9rem",
+            fontWeight: "500",
+          }}
+        >
           {saveError}
         </div>
       )}
 
       {/* ── ADD FOOD FORM ─────────────────────────────────────────────────── */}
-      <div style={{
-        background: "var(--color-surface)",
-        border: "1px solid var(--color-border)",
-        borderRadius: "0.75rem",
-        padding: "1rem",
-        marginBottom: "1.5rem",
-      }}>
-        <h2 style={{ margin: "0 0 1rem", fontSize: "1rem", fontWeight: "600" }}>Log Food</h2>
+      <div
+        style={{
+          background: "var(--color-surface)",
+          border: "1px solid var(--color-border)",
+          borderRadius: "0.75rem",
+          padding: "1rem",
+          marginBottom: "1.5rem",
+        }}
+      >
+        <h2 style={{ margin: "0 0 1rem", fontSize: "1rem", fontWeight: "600" }}>
+          Log Food
+        </h2>
 
         {!selectedFood ? (
           // Step 1: Search for a food
@@ -196,24 +231,36 @@ function DiaryPage() {
           // Step 2: Enter portion and meal, then add
           <div>
             {/* Show the selected food name with a clear button */}
-            <div style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              padding: "0.5rem 0.75rem",
-              background: "var(--color-accent-light)",
-              borderRadius: "0.5rem",
-              marginBottom: "1rem",
-            }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                padding: "0.5rem 0.75rem",
+                background: "var(--color-accent-light)",
+                borderRadius: "0.5rem",
+                marginBottom: "1rem",
+              }}
+            >
               <span style={{ flex: 1, fontWeight: "600", fontSize: "0.9rem" }}>
                 {selectedFood.name}
               </span>
-              <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+              <span
+                style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}
+              >
                 {selectedFood.caloriesPer100g} kcal/100g
               </span>
               <button
                 onClick={() => setSelectedFood(null)}
-                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted)", fontSize: "1.1rem", padding: "0", lineHeight: 1 }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "var(--color-text-muted)",
+                  fontSize: "1.1rem",
+                  padding: "0",
+                  lineHeight: 1,
+                }}
                 title="Change food"
               >
                 ×
@@ -221,9 +268,22 @@ function DiaryPage() {
             </div>
 
             {/* Portion + meal row */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1rem" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "0.75rem",
+                marginBottom: "1rem",
+              }}
+            >
               <label style={{ display: "block" }}>
-                <div style={{ fontSize: "0.85rem", fontWeight: "600", marginBottom: "0.3rem" }}>
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    fontWeight: "600",
+                    marginBottom: "0.3rem",
+                  }}
+                >
                   Portion (grams)
                 </div>
                 <input
@@ -243,7 +303,13 @@ function DiaryPage() {
               </label>
 
               <label style={{ display: "block" }}>
-                <div style={{ fontSize: "0.85rem", fontWeight: "600", marginBottom: "0.3rem" }}>
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    fontWeight: "600",
+                    marginBottom: "0.3rem",
+                  }}
+                >
                   Meal
                 </div>
                 <select
@@ -268,17 +334,35 @@ function DiaryPage() {
             </div>
 
             {/* Calorie preview */}
-            {portionGrams && !isNaN(parseFloat(portionGrams)) && parseFloat(portionGrams) > 0 && (
-              <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", margin: "0 0 0.75rem" }}>
-                = <strong style={{ color: "var(--color-accent)" }}>
-                  {calcPortionCalories(parseFloat(portionGrams), selectedFood.caloriesPer100g)} kcal
-                </strong>
-              </p>
-            )}
+            {portionGrams &&
+              !isNaN(parseFloat(portionGrams)) &&
+              parseFloat(portionGrams) > 0 && (
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "var(--color-text-muted)",
+                    margin: "0 0 0.75rem",
+                  }}
+                >
+                  ={" "}
+                  <strong style={{ color: "var(--color-accent)" }}>
+                    {calcPortionCalories(
+                      parseFloat(portionGrams),
+                      selectedFood.caloriesPer100g,
+                    )}{" "}
+                    kcal
+                  </strong>
+                </p>
+              )}
 
             <button
               onClick={handleAddEntry}
-              disabled={saving || !portionGrams || isNaN(parseFloat(portionGrams)) || parseFloat(portionGrams) <= 0}
+              disabled={
+                saving ||
+                !portionGrams ||
+                isNaN(parseFloat(portionGrams)) ||
+                parseFloat(portionGrams) <= 0
+              }
               className="btn-primary"
             >
               {saving ? "Adding..." : "Add to Diary"}
@@ -287,37 +371,48 @@ function DiaryPage() {
         )}
       </div>
 
-      {/* ── CALORIE GOAL EDITOR ─────────────────────────────────────────── */}
-      {showGoalEditor && user && (
-        <CalorieGoalEditor
-          userId={user.uid}
-          currentGoal={userProfile?.calorieGoal ?? null}
-          onClose={() => setShowGoalEditor(false)}
-        />
-      )}
-
       {/* ── DIARY ENTRIES ─────────────────────────────────────────────────── */}
       {entries.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "3rem 1rem", color: "var(--color-text-muted)" }}>
-          <div style={{ fontSize: "2.5rem", marginBottom: "0.75rem" }}>🍽️</div>
-          <p style={{ fontWeight: "600", marginBottom: "0.25rem" }}>Nothing logged yet</p>
-          <p style={{ fontSize: "0.85rem" }}>Search for a food above to start tracking your meals.</p>
+        <div
+          style={{
+            textAlign: "center",
+            padding: "3rem 1rem",
+            color: "var(--color-text-muted)",
+          }}
+        >
+          <div style={{ marginBottom: "0.75rem" }}>
+            <img src="/Plate-Icon.png" alt="Plate" style={{ height: "2.5rem" }} />
+          </div>
+          <p style={{ fontWeight: "600", marginBottom: "0.25rem" }}>
+            Nothing logged yet
+          </p>
+          <p style={{ fontSize: "0.85rem" }}>
+            Search for a food above to start tracking your meals.
+          </p>
         </div>
       ) : (
         <>
           {entriesByMeal.map(({ meal, items }) => (
             <div key={meal} style={{ marginBottom: "1.25rem" }}>
-              <h3 style={{
-                margin: "0 0 0.5rem",
-                fontSize: "0.8rem",
-                fontWeight: "700",
-                textTransform: "uppercase",
-                letterSpacing: "0.06em",
-                color: "var(--color-text-muted)",
-              }}>
+              <h3
+                style={{
+                  margin: "0 0 0.5rem",
+                  fontSize: "0.8rem",
+                  fontWeight: "700",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  color: "var(--color-text-muted)",
+                }}
+              >
                 {meal}
               </h3>
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.4rem",
+                }}
+              >
                 {items.map((entry) => (
                   <MealEntry key={entry.id} entry={entry} />
                 ))}
@@ -325,12 +420,7 @@ function DiaryPage() {
             </div>
           ))}
 
-          <DailySummary
-            entries={entries}
-            energyData={energyData}
-            calorieGoal={userProfile?.calorieGoal ?? null}
-            onEditGoal={() => setShowGoalEditor(true)}
-          />
+          <DailySummary entries={entries} />
         </>
       )}
     </RequireAuth>

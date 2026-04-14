@@ -86,6 +86,7 @@ select {
 .page-main {
   flex: 1;
   padding: 1.5rem 1rem 5rem; /* bottom padding so content clears mobile browser chrome */
+  margin-top: calc(var(--header-height) + env(safe-area-inset-top));
 }
 
 .page-container {
@@ -98,15 +99,19 @@ select {
    ═══════════════════════════════════════════════════════════ */
 
 .site-header {
-  height: var(--header-height);
+  min-height: var(--header-height);
+  box-sizing: border-box;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 1rem;
-  position: sticky;
+  padding-top: env(safe-area-inset-top);
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 100;
 }
 
@@ -148,24 +153,87 @@ select {
   background: var(--color-accent-light);
 }
 
+/* ── Bottom tab bar (iOS native only) ──────────────────────── */
+
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-around;
+  align-items: flex-end;
+  padding: 0.5rem 0 calc(0.5rem + env(safe-area-inset-bottom));
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  z-index: 100;
+}
+
+/* When bottom nav is present, add padding so content isn't hidden behind it */
+.app-wrapper--native .page-main {
+  padding-bottom: 8rem;
+}
+
+/* Taller header on iOS to clear the status bar */
+.app-wrapper--native .site-header {
+  min-height: 100px;
+}
+
 .header-right {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  position: relative;
 }
 
-.logout-btn {
+.header-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   background: none;
-  border: 1px solid var(--color-border);
+  border: none;
+  padding: 0.3rem 0.5rem;
   border-radius: 2rem;
-  padding: 0.3rem 0.75rem;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.15s;
 }
 
-.logout-btn:hover {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+.header-dropdown-trigger:hover {
+  background: var(--color-surface-alt);
+}
+
+.header-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.4rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  min-width: 160px;
+  z-index: 200;
+  overflow: hidden;
+}
+
+.header-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 0.65rem 1rem;
+  background: none;
+  border: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.header-dropdown-item:hover {
+  background: var(--color-surface-alt);
 }
 
 .login-link {
@@ -376,6 +444,107 @@ select {
   font-size: 1rem;
   cursor: pointer;
   color: var(--color-text);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PROFILE PAGE
+   ═══════════════════════════════════════════════════════════ */
+
+.profile-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.profile-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.profile-section-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.profile-edit-btn {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.25rem 0.5rem;
+}
+
+.profile-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.profile-field-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.profile-field-value {
+  font-size: 0.95rem;
+  color: var(--color-text);
+}
+
+.profile-field-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1.5px solid var(--color-border);
+  border-radius: 0.5rem;
+  font-size: 0.95rem;
+  transition: border-color 0.15s;
+}
+
+.profile-field-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.profile-link-btn {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.profile-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.profile-error {
+  color: #d32f2f;
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem;
+}
+
+.profile-success {
+  color: var(--color-success);
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem;
 }
 
 /* ═══════════════════════════════════════════════════════════
