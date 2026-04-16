@@ -9,7 +9,7 @@
 //   - Delete individual entries
 
 import { useState, useEffect } from "react";
-import { createRoute } from "@tanstack/react-router";
+import { createRoute, useNavigate } from "@tanstack/react-router";
 import { Route as rootRoute } from "../__root";
 import { RequireAuth } from "../../components/RequireAuth";
 import { useAuth } from "../../context/AuthContext";
@@ -18,6 +18,7 @@ import { MealEntry } from "../../components/MealEntry";
 import { DailySummary } from "../../components/DailySummary";
 import { DateNav } from "../../components/DateNav";
 import { subscribeDiaryForDay, addMealLog } from "../../utils/diaryDb";
+import { findFoodByBarcode } from "../../utils/foodsDb";
 import { toDateKey } from "../../utils/dateHelpers";
 import { calcPortionCalories } from "../../utils/calorieCalculator";
 import type { MealLogEntry, MealType } from "../../types/diary";
@@ -33,7 +34,12 @@ import {
 } from "../../utils/healthDb";
 import { CalorieGoalEditor } from "../../components/CalorieGoalEditor";
 import { CalorieSummaryCard } from "../../components/CalorieSummaryCard";
+import { QuickAddModal } from "../../components/QuickAddModal";
 import type { DailyEnergyData, UserProfile } from "../../types/health";
+import {
+  isBarcodeScannerAvailable,
+  scanBarcode,
+} from "../../utils/barcodeScanner";
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
@@ -46,6 +52,7 @@ const MEAL_ORDER: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
 
 function DiaryPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [entries, setEntries] = useState<MealLogEntry[]>([]);
 
@@ -64,6 +71,11 @@ function DiaryPage() {
   // Calorie goal from user_profiles Firestore collection
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [showGoalEditor, setShowGoalEditor] = useState(false);
+
+  // Quick Add modal — manual kcal entry without a food from the database
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [quickAddSaving, setQuickAddSaving] = useState(false);
+  const [quickAddError, setQuickAddError] = useState<string | null>(null);
 
   const dateKey = toDateKey(currentDate);
 
@@ -105,6 +117,27 @@ function DiaryPage() {
     const unsubGoal = subscribeUserProfile(user.uid, setUserProfile);
     return unsubGoal;
   }, [user]);
+
+  async function handleScan() {
+    const barcode = await scanBarcode();
+    if (!barcode) return;
+
+    const existing = await findFoodByBarcode(barcode);
+
+    if (existing) {
+      setSelectedFood({
+        name: existing.name,
+        caloriesPer100g: existing.caloriesPer100g,
+        proteinPer100g: existing.proteinPer100g,
+        fatPer100g: existing.fatPer100g,
+        carbsPer100g: existing.carbsPer100g,
+        source: "custom",
+      });
+      return;
+    }
+
+    navigate({ to: "/foods/add", search: { barcode } });
+  }
 
   async function handleAddEntry() {
     if (!user || !selectedFood || !portionGrams) return;
@@ -161,6 +194,55 @@ function DiaryPage() {
     setSaving(false);
   }
 
+  async function handleQuickAddSave(payload: {
+    foodName: string;
+    kcal: number;
+    proteinGrams?: number;
+    meal: MealType;
+  }) {
+    if (!user) return;
+    setQuickAddSaving(true);
+    setQuickAddError(null);
+
+    // Synthetic per-100g values: we tell the schema "100g at `kcal` kcal/100g"
+    // so totalCalories math works out exactly; isQuickAdd flags it for the UI
+    // to hide the meaningless grams label.
+    const optimisticEntry: MealLogEntry = {
+      id: "temp-" + Date.now(),
+      userId: user.uid,
+      dateKey,
+      loggedAt: new Date(),
+      meal: payload.meal,
+      foodName: payload.foodName,
+      caloriesPer100g: payload.kcal,
+      proteinPer100g: payload.proteinGrams,
+      portionGrams: 100,
+      totalCalories: payload.kcal,
+      isQuickAdd: true,
+    };
+    setEntries((prev) => [...prev, optimisticEntry]);
+
+    try {
+      await addMealLog({
+        userId: user.uid,
+        dateKey,
+        meal: payload.meal,
+        foodName: payload.foodName,
+        caloriesPer100g: payload.kcal,
+        proteinPer100g: payload.proteinGrams,
+        portionGrams: 100,
+        totalCalories: payload.kcal,
+        isQuickAdd: true,
+      });
+      setShowQuickAdd(false);
+    } catch {
+      setEntries((prev) => prev.filter((e) => e.id !== optimisticEntry.id));
+      setQuickAddError("Couldn't save. Please try again.");
+    } finally {
+      setQuickAddSaving(false);
+    }
+  }
+
   // Total calories eaten today — used by the summary ring and DailySummary
   const totalCaloriesEaten = entries.reduce((sum, e) => sum + e.totalCalories, 0);
 
@@ -191,6 +273,19 @@ function DiaryPage() {
           userId={user.uid}
           currentGoal={userProfile?.calorieGoal ?? null}
           onClose={() => setShowGoalEditor(false)}
+        />
+      )}
+
+      {/* ── QUICK ADD MODAL ─────────────────────────────────────────────── */}
+      {showQuickAdd && (
+        <QuickAddModal
+          onSave={handleQuickAddSave}
+          onCancel={() => {
+            setShowQuickAdd(false);
+            setQuickAddError(null);
+          }}
+          saving={quickAddSaving}
+          error={quickAddError}
         />
       )}
 
@@ -225,8 +320,56 @@ function DiaryPage() {
         </h2>
 
         {!selectedFood ? (
-          // Step 1: Search for a food
-          <FoodSearchInput onSelect={setSelectedFood} />
+          // Step 1: Search for a food (with optional Scan button on iOS)
+          <div
+            style={{
+              display: "flex",
+              alignItems: "stretch",
+              gap: "0.5rem",
+            }}
+          >
+            <div style={{ flex: 1 }}>
+              <FoodSearchInput onSelect={setSelectedFood} />
+            </div>
+            {isBarcodeScannerAvailable() && (
+              <button
+                type="button"
+                onClick={handleScan}
+                aria-label="Scan barcode"
+                style={{
+                  flexShrink: 0,
+                  padding: "0 0.9rem",
+                  borderRadius: "0.5rem",
+                  background: "#2563eb",
+                  color: "white",
+                  border: "none",
+                  fontSize: "0.875rem",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                }}
+              >
+                Scan
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowQuickAdd(true)}
+              aria-label="Quick add calories"
+              style={{
+                flexShrink: 0,
+                padding: "0 0.9rem",
+                borderRadius: "0.5rem",
+                background: "var(--color-accent)",
+                color: "white",
+                border: "none",
+                fontSize: "0.875rem",
+                fontWeight: "600",
+                cursor: "pointer",
+              }}
+            >
+              + Quick
+            </button>
+          </div>
         ) : (
           // Step 2: Enter portion and meal, then add
           <div>

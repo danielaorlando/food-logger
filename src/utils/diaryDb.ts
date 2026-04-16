@@ -44,6 +44,7 @@ export async function addMealLog(payload: AddMealLogPayload): Promise<string> {
     ...(payload.carbsPer100g !== undefined
       ? { carbsPer100g: payload.carbsPer100g }
       : {}),
+    ...(payload.isQuickAdd ? { isQuickAdd: true } : {}),
   });
   return docRef.id;
 }
@@ -91,6 +92,7 @@ export function subscribeDiaryForDay(
           carbsPer100g: data.carbsPer100g as number | undefined,
           portionGrams: data.portionGrams as number,
           totalCalories: data.totalCalories as number,
+          isQuickAdd: data.isQuickAdd as boolean | undefined,
         };
       });
       onData(entries);

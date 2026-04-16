@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import type { User } from "firebase/auth";
+import { SplashScreen } from "@capacitor/splash-screen";
 import { auth } from "../firebase";
 
 type AuthContextType = {
@@ -21,6 +22,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       setLoading(false);
+      // Reveal the real UI. Safe to call on web (plugin is a no-op there).
+      SplashScreen.hide().catch(() => {});
     });
     return unsubscribe;
   }, []);

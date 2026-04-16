@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Food Logger</string>
+	<string>Bite Balance</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -34,13 +34,13 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Food Logger needs camera access to scan barcodes and photograph food labels</string>
+	<string>Bite Balance needs camera access to scan barcodes and photograph food labels</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>Food Logger reads your active and resting energy data to show calories burned alongside your food diary.</string>
+	<string>Bite Balance reads your active and resting energy data to show calories burned alongside your food diary.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>Food Logger does not write health data, but this permission is required by the system.</string>
+	<string>Bite Balance does not write health data, but this permission is required by the system.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Food Logger needs photo library access to select food label photos</string>
+	<string>Bite Balance needs photo library access to select food label photos</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

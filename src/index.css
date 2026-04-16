@@ -169,9 +169,24 @@ select {
   z-index: 100;
 }
 
-/* When bottom nav is present, add padding so content isn't hidden behind it */
+/* iOS: no fixed header, so don't reserve space for one. Body already handles
+   the status-bar safe area. Bottom padding clears the fixed bottom nav. */
 .app-wrapper--native .page-main {
+  margin-top: 0;
   padding-bottom: 8rem;
+}
+
+/* iOS: opaque overlay covering the status-bar area. Scrolling content passes
+   behind this so it never clashes with the time/battery icons. */
+.ios-status-bar-cover {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-top);
+  background: var(--color-bg);
+  z-index: 100;
+  pointer-events: none;
 }
 
 /* Taller header on iOS to clear the status bar */

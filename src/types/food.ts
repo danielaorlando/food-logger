@@ -8,6 +8,7 @@ export interface CustomFood {
   fatPer100g?: number;
   carbsPer100g?: number;
   countryOfOrigin?: string;
+  barcode?: string;
 }
 
 export interface SubmitFoodPayload {
@@ -18,4 +19,5 @@ export interface SubmitFoodPayload {
   fatPer100g?: number;
   carbsPer100g?: number;
   countryOfOrigin?: string;
+  barcode?: string;
 }

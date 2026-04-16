@@ -36,7 +36,9 @@ async function getCachedFoods(): Promise<CustomFood[]> {
 // Fetches all foods (cached) and filters client-side with .includes()
 // so that searching "sopa" matches "Knorr Sopa crema ..." anywhere in the name.
 
-export async function searchCustomFoods(searchQuery: string): Promise<CustomFood[]> {
+export async function searchCustomFoods(
+  searchQuery: string,
+): Promise<CustomFood[]> {
   if (!searchQuery || searchQuery.trim().length < 2) return [];
 
   const queryLower = searchQuery.toLowerCase().trim();
@@ -49,17 +51,28 @@ export async function searchCustomFoods(searchQuery: string): Promise<CustomFood
 
 // ── SUBMIT ───────────────────────────────────────────────────────────────────
 
-export async function submitCustomFood(payload: SubmitFoodPayload): Promise<string> {
+export async function submitCustomFood(
+  payload: SubmitFoodPayload,
+): Promise<string> {
   const doc = await addDoc(collection(db, "foods"), {
     name: payload.name.trim(),
     nameLower: payload.name.toLowerCase().trim(),
     caloriesPer100g: Math.round(payload.caloriesPer100g),
     submittedBy: payload.userId,
     createdAt: serverTimestamp(),
-    ...(payload.proteinPer100g !== undefined ? { proteinPer100g: payload.proteinPer100g } : {}),
-    ...(payload.fatPer100g !== undefined ? { fatPer100g: payload.fatPer100g } : {}),
-    ...(payload.carbsPer100g !== undefined ? { carbsPer100g: payload.carbsPer100g } : {}),
-    ...(payload.countryOfOrigin ? { countryOfOrigin: payload.countryOfOrigin } : {}),
+    ...(payload.proteinPer100g !== undefined
+      ? { proteinPer100g: payload.proteinPer100g }
+      : {}),
+    ...(payload.fatPer100g !== undefined
+      ? { fatPer100g: payload.fatPer100g }
+      : {}),
+    ...(payload.carbsPer100g !== undefined
+      ? { carbsPer100g: payload.carbsPer100g }
+      : {}),
+    ...(payload.countryOfOrigin
+      ? { countryOfOrigin: payload.countryOfOrigin }
+      : {}),
+    ...(payload.barcode ? { barcode: payload.barcode } : {}),
   });
   cachedFoods = null; // invalidate cache so new food appears in search immediately
   return doc.id;
@@ -94,6 +107,37 @@ export async function checkDuplicateFood(
     fatPer100g: data.fatPer100g as number | undefined,
     carbsPer100g: data.carbsPer100g as number | undefined,
     countryOfOrigin: data.countryOfOrigin as string | undefined,
+  };
+}
+
+// ── FIND BY BARCODE ──────────────────────────────────────────────────────────
+
+export async function findFoodByBarcode(
+  barcode: string,
+): Promise<CustomFood | null> {
+  if (!barcode) return null;
+
+  const q = query(
+    collection(db, "foods"),
+    where("barcode", "==", barcode),
+    limit(1),
+  );
+  const snap = await getDocs(q);
+  if (snap.empty) return null;
+
+  const doc = snap.docs[0];
+  const data = doc.data();
+  return {
+    id: doc.id,
+    name: data.name as string,
+    caloriesPer100g: data.caloriesPer100g as number,
+    submittedBy: data.submittedBy as string,
+    createdAt: data.createdAt?.toDate() ?? new Date(),
+    proteinPer100g: data.proteinPer100g as number | undefined,
+    fatPer100g: data.fatPer100g as number | undefined,
+    carbsPer100g: data.carbsPer100g as number | undefined,
+    countryOfOrigin: data.countryOfOrigin as string | undefined,
+    barcode: data.barcode as string | undefined,
   };
 }
 

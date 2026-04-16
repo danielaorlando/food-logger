@@ -11,13 +11,24 @@ import { Route as rootRoute } from "../__root";
 import { RequireAuth } from "../../components/RequireAuth";
 import { useAuth } from "../../context/AuthContext";
 import { extractFoodFromPhotos } from "../../utils/geminiVision";
-import { submitCustomFood, checkDuplicateFood } from "../../utils/foodsDb";
+import {
+  submitCustomFood,
+  checkDuplicateFood,
+  findFoodByBarcode,
+} from "../../utils/foodsDb";
+import {
+  isBarcodeScannerAvailable,
+  scanBarcode,
+} from "../../utils/barcodeScanner";
 import type { CustomFood } from "../../types/food";
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
   path: "/foods/add",
   component: AddFoodPage,
+  validateSearch: (s: Record<string, unknown>) => ({
+    barcode: typeof s.barcode === "string" ? s.barcode : undefined,
+  }),
 });
 
 // ── TYPES ────────────────────────────────────────────────────────────────────
@@ -36,6 +47,7 @@ interface WizardState {
   fatPer100g: string;
   carbsPer100g: string;
   countryOfOrigin: string;
+  barcode: string;
   analysisError: string | null;
   aiExtractedFields: Set<string>;
 }
@@ -50,6 +62,7 @@ const INITIAL_STATE: WizardState = {
   fatPer100g: "",
   carbsPer100g: "",
   countryOfOrigin: "",
+  barcode: "",
   analysisError: null,
   aiExtractedFields: new Set(),
 };
@@ -74,7 +87,11 @@ async function runAnalysisWithTimeout(
 
 function AddFoodPage() {
   const { user } = useAuth();
-  const [state, setState] = useState<WizardState>(INITIAL_STATE);
+  const { barcode: prefilledBarcode } = Route.useSearch();
+  const [state, setState] = useState<WizardState>(() => ({
+    ...INITIAL_STATE,
+    barcode: prefilledBarcode ?? "",
+  }));
   const [saving, setSaving] = useState(false);
   const [duplicateFood, setDuplicateFood] = useState<CustomFood | null>(null);
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(false);
@@ -135,7 +152,19 @@ function AddFoodPage() {
 
     setSaving(true);
 
-    // Check for duplicates first
+    // Check barcode collision first — strongest duplicate signal
+    const trimmedBarcode = state.barcode.trim();
+    if (trimmedBarcode) {
+      const existingByBarcode = await findFoodByBarcode(trimmedBarcode);
+      if (existingByBarcode) {
+        setSaving(false);
+        setDuplicateFood(existingByBarcode);
+        setShowDuplicateWarning(true);
+        return;
+      }
+    }
+
+    // Then check name duplicate
     const existing = await checkDuplicateFood(state.productName);
 
     if (existing) {
@@ -157,6 +186,7 @@ function AddFoodPage() {
         ? parseFloat(state.carbsPer100g)
         : undefined,
       countryOfOrigin: state.countryOfOrigin.trim() || undefined,
+      barcode: state.barcode.trim() || undefined,
     });
     setSaving(false);
     setState((s) => ({ ...s, step: "saved" }));
@@ -729,6 +759,81 @@ function ReviewStep({
           ),
         )}
       </div>
+
+      <label style={{ display: "block", marginBottom: "1rem" }}>
+        <div
+          style={{
+            fontSize: "0.9rem",
+            fontWeight: "600",
+            marginBottom: "0.35rem",
+          }}
+        >
+          Barcode (optional)
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "stretch",
+            gap: "0.5rem",
+          }}
+        >
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={state.barcode}
+            onChange={(e) =>
+              setState((s) => ({
+                ...s,
+                barcode: e.target.value.replace(/\D/g, ""),
+              }))
+            }
+            placeholder="e.g. 7791234567890"
+            maxLength={14}
+            style={{
+              flex: 1,
+              padding: "0.6rem 0.75rem",
+              border: "1.5px solid var(--color-border)",
+              borderRadius: "0.5rem",
+              fontSize: "1rem",
+              boxSizing: "border-box",
+            }}
+          />
+          {isBarcodeScannerAvailable() && (
+            <button
+              type="button"
+              onClick={async () => {
+                const scanned = await scanBarcode();
+                if (scanned) setState((s) => ({ ...s, barcode: scanned }));
+              }}
+              aria-label="Scan barcode"
+              style={{
+                flexShrink: 0,
+                padding: "0 0.9rem",
+                borderRadius: "0.5rem",
+                background: "#2563eb",
+                color: "white",
+                border: "none",
+                fontSize: "0.875rem",
+                fontWeight: "600",
+                cursor: "pointer",
+              }}
+            >
+              Scan
+            </button>
+          )}
+        </div>
+        <p
+          style={{
+            marginTop: "0.35rem",
+            fontSize: "0.75rem",
+            color: "var(--color-text-muted)",
+          }}
+        >
+          Scanning the barcode lets anyone (including you) find this food
+          instantly with the scanner next time.
+        </p>
+      </label>
 
       {field("countryOfOrigin", "Country of Origin")}
 

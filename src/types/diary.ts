@@ -28,6 +28,11 @@ export interface MealLogEntry {
   // Pre-computed: Math.round((portionGrams / 100) * caloriesPer100g)
   // Stored so the diary can sum calories without re-doing math on every render.
   totalCalories: number;
+
+  // True for entries created via the Quick Add flow, where the user typed a
+  // total kcal directly instead of weighing a portion. The per-100g values
+  // and portionGrams are synthetic in that case — UI should hide grams.
+  isQuickAdd?: boolean;
 }
 
 export interface AddMealLogPayload {
@@ -42,4 +47,5 @@ export interface AddMealLogPayload {
   carbsPer100g?: number;
   portionGrams: number;
   totalCalories: number;
+  isQuickAdd?: boolean;
 }

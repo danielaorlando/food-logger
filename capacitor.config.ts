@@ -15,6 +15,16 @@ const config: CapacitorConfig = {
       skipNativeAuth: false,
       providers: ['google.com'],
     },
+    SplashScreen: {
+      // Stay on the splash until JS calls SplashScreen.hide() — normally
+      // the moment Firebase Auth resolves in AuthContext. The backgroundColor
+      // must match the mint used in LaunchScreen.storyboard so the padding
+      // around the letterboxed splash image looks seamless.
+      launchAutoHide: false,
+      backgroundColor: '#BFECD8',
+      launchFadeOutDuration: 300,
+      showSpinner: false,
+    },
   },
 };
 

@@ -45,7 +45,7 @@ function FoodsListPage() {
         }}
       >
         <h1 style={{ margin: 0 }}>Foods Database</h1>
-        <Link to="/foods/add" className="btn-primary" style={{ display: "inline-block" }}>
+        <Link to="/foods/add" search={{ barcode: undefined }} className="btn-primary" style={{ display: "inline-block" }}>
           + Add Food
         </Link>
       </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { createRoute } from "@tanstack/react-router";
-import { updateProfile, sendPasswordResetEmail } from "firebase/auth";
+import { createRoute, useNavigate } from "@tanstack/react-router";
+import { updateProfile, sendPasswordResetEmail, signOut } from "firebase/auth";
 import { Route as rootRoute } from "../__root";
 import { RequireAuth } from "../../components/RequireAuth";
 import { useAuth } from "../../context/AuthContext";
@@ -28,12 +28,38 @@ function ProfilePage() {
     return unsub;
   }, [user]);
 
+  const navigate = useNavigate();
+
+  async function handleLogout() {
+    await signOut(auth);
+    navigate({ to: "/" });
+  }
+
   return (
     <RequireAuth>
       <h1 style={{ marginBottom: "1.5rem" }}>My Profile</h1>
       {user && <AccountInfoSection />}
       {user && <BodyStatsSection profile={profile} userId={user.uid} />}
       {user && <GoalsSection profile={profile} userId={user.uid} />}
+
+      {user && (
+        <div style={{ marginTop: "2rem", textAlign: "center" }}>
+          <button
+            onClick={handleLogout}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#c62828",
+              fontSize: "0.95rem",
+              fontWeight: "600",
+              padding: "0.75rem 1.25rem",
+              cursor: "pointer",
+            }}
+          >
+            Log out
+          </button>
+        </div>
+      )}
     </RequireAuth>
   );
 }

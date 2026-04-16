@@ -13,8 +13,10 @@
   },
   "dependencies": {
     "@capacitor-firebase/authentication": "^8.1.0",
+    "@capacitor/barcode-scanner": "^3.0.2",
     "@capacitor/core": "^8.3.0",
     "@capacitor/ios": "^8.3.0",
+    "@capacitor/splash-screen": "^8.0.1",
     "@capgo/capacitor-health": "^8.4.5",
     "@fortawesome/fontawesome-svg-core": "^7.2.0",
     "@fortawesome/free-solid-svg-icons": "^7.2.0",

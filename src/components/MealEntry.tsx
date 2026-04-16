@@ -37,10 +37,12 @@ export function MealEntry({ entry }: Props) {
         {entry.foodName}
       </span>
 
-      {/* Portion */}
-      <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", flexShrink: 0 }}>
-        {entry.portionGrams}g
-      </span>
+      {/* Portion — hidden for quick-add entries where grams are synthetic */}
+      {!entry.isQuickAdd && (
+        <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", flexShrink: 0 }}>
+          {entry.portionGrams}g
+        </span>
+      )}
 
       {/* Calories */}
       <span style={{
