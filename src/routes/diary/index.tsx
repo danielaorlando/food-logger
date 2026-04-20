@@ -14,7 +14,12 @@ import { Route as rootRoute } from "../__root";
 import { RequireAuth } from "../../components/RequireAuth";
 import { useAuth } from "../../context/AuthContext";
 import { FoodSearchInput } from "../../components/FoodSearchInput";
-import { MealEntry } from "../../components/MealEntry";
+import {
+  MealEntry,
+  MEAL_ROW_COLUMNS,
+  MEAL_ROW_GAP,
+  MEAL_ROW_X_PADDING,
+} from "../../components/MealEntry";
 import { DailySummary } from "../../components/DailySummary";
 import { DateNav } from "../../components/DateNav";
 import { subscribeDiaryForDay, addMealLog } from "../../utils/diaryDb";
@@ -537,18 +542,28 @@ function DiaryPage() {
         <>
           {entriesByMeal.map(({ meal, items }) => (
             <div key={meal} style={{ marginBottom: "1.25rem" }}>
-              <h3
+              {/* Meal-group header — uses the same grid template as MealEntry
+                  so its label cells line up with the values in the rows below. */}
+              <div
                 style={{
+                  display: "grid",
+                  gridTemplateColumns: MEAL_ROW_COLUMNS,
+                  columnGap: MEAL_ROW_GAP,
+                  padding: `0 ${MEAL_ROW_X_PADDING}`,
                   margin: "0 0 0.5rem",
-                  fontSize: "0.8rem",
+                  fontSize: "0.7rem",
                   fontWeight: "700",
                   textTransform: "uppercase",
                   letterSpacing: "0.06em",
                   color: "var(--color-text-muted)",
                 }}
               >
-                {meal}
-              </h3>
+                <span>{meal}</span>
+                <span style={{ textAlign: "right" }}>Grams</span>
+                <span style={{ textAlign: "right" }}>Kcal</span>
+                <span style={{ textAlign: "right" }}>Protein</span>
+                <span />
+              </div>
               <div
                 style={{
                   display: "flex",
