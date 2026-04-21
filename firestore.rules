@@ -20,10 +20,50 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Any authenticated user can read foods; only the submitter can write
+    // Community-curated food database.
+    // Any authenticated user can read. Creates are tightly validated.
+    // Updates and deletes are denied from the client — editing/deletion
+    // will go through a request queue (see I1), not direct writes.
     match /foods/{foodId} {
       allow read: if request.auth != null;
-      allow create: if request.auth != null;
+
+      allow create: if request.auth != null
+                    && request.resource.data.submittedBy == request.auth.uid
+                    && isValidFood(request.resource.data);
+    }
+
+    // Validates the shape of a food document on create.
+    // Required keys: name, nameLower, caloriesPer100g, submittedBy, createdAt.
+    // Optional keys: proteinPer100g, fatPer100g, carbsPer100g, countryOfOrigin, barcode.
+    function isValidFood(d) {
+      return d.keys().hasOnly([
+               'name', 'nameLower', 'caloriesPer100g', 'submittedBy', 'createdAt',
+               'proteinPer100g', 'fatPer100g', 'carbsPer100g',
+               'countryOfOrigin', 'barcode'
+             ])
+             && d.keys().hasAll([
+               'name', 'nameLower', 'caloriesPer100g', 'submittedBy', 'createdAt'
+             ])
+             && d.name is string
+             && d.name.size() >= 1
+             && d.name.size() <= 200
+             && d.nameLower is string
+             && d.nameLower == d.name.lower()
+             && d.caloriesPer100g is number
+             && d.caloriesPer100g >= 0
+             && d.caloriesPer100g <= 2000
+             && d.submittedBy is string
+             && d.createdAt == request.time
+             && (!('proteinPer100g' in d) ||
+                 (d.proteinPer100g is number && d.proteinPer100g >= 0 && d.proteinPer100g <= 100))
+             && (!('fatPer100g' in d) ||
+                 (d.fatPer100g is number && d.fatPer100g >= 0 && d.fatPer100g <= 100))
+             && (!('carbsPer100g' in d) ||
+                 (d.carbsPer100g is number && d.carbsPer100g >= 0 && d.carbsPer100g <= 100))
+             && (!('countryOfOrigin' in d) ||
+                 (d.countryOfOrigin is string && d.countryOfOrigin.size() <= 100))
+             && (!('barcode' in d) ||
+                 (d.barcode is string && d.barcode.size() >= 8 && d.barcode.size() <= 14));
     }
   }
 }

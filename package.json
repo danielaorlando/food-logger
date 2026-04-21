@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "cap:sync": "npx cap sync",
-    "cap:ios": "npm run build && npx cap sync && npx cap open ios"
+    "cap:ios": "npm run build && npx cap sync && npx cap open ios",
+    "test:rules": "node scripts/test-firestore-rules.mjs"
   },
   "dependencies": {
     "@capacitor-firebase/authentication": "^8.1.0",
@@ -34,6 +35,7 @@
     "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.3.0",
     "@eslint/js": "^9.39.1",
+    "@firebase/rules-unit-testing": "^5.0.0",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",

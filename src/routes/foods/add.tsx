@@ -49,6 +49,7 @@ interface WizardState {
   countryOfOrigin: string;
   barcode: string;
   analysisError: string | null;
+  saveError: string | null;
   aiExtractedFields: Set<string>;
 }
 
@@ -64,8 +65,74 @@ const INITIAL_STATE: WizardState = {
   countryOfOrigin: "",
   barcode: "",
   analysisError: null,
+  saveError: null,
   aiExtractedFields: new Set(),
 };
+
+type FieldErrors = Partial<
+  Record<
+    | "productName"
+    | "caloriesPer100g"
+    | "proteinPer100g"
+    | "fatPer100g"
+    | "carbsPer100g"
+    | "countryOfOrigin"
+    | "barcode",
+    string
+  >
+>;
+
+// Mirrors the server-side isValidFood() checks in firestore.rules so the
+// user gets per-field feedback before submitting.
+function validateFood(state: WizardState): FieldErrors {
+  const errors: FieldErrors = {};
+
+  const name = state.productName.trim();
+  if (!name) {
+    errors.productName = "Product name is required.";
+  } else if (name.length > 200) {
+    errors.productName = "Must be 200 characters or fewer.";
+  }
+
+  const kcalStr = state.caloriesPer100g;
+  if (!kcalStr) {
+    errors.caloriesPer100g = "Calories per 100g is required.";
+  } else {
+    const kcal = parseFloat(kcalStr);
+    if (isNaN(kcal)) {
+      errors.caloriesPer100g = "Must be a number.";
+    } else if (kcal < 0 || kcal > 2000) {
+      errors.caloriesPer100g = "Must be between 0 and 2000 kcal per 100g.";
+    }
+  }
+
+  const macroFields = [
+    ["proteinPer100g", "Protein"],
+    ["fatPer100g", "Fat"],
+    ["carbsPer100g", "Carbs"],
+  ] as const;
+  for (const [key, label] of macroFields) {
+    const val = state[key];
+    if (!val) continue;
+    const n = parseFloat(val);
+    if (isNaN(n)) {
+      errors[key] = `${label} must be a number.`;
+    } else if (n < 0 || n > 100) {
+      errors[key] = `${label} must be between 0 and 100 g per 100g.`;
+    }
+  }
+
+  if (state.countryOfOrigin.trim().length > 100) {
+    errors.countryOfOrigin = "Must be 100 characters or fewer.";
+  }
+
+  const barcode = state.barcode.trim();
+  if (barcode && (barcode.length < 8 || barcode.length > 14)) {
+    errors.barcode = "Must be 8–14 digits (UPC-E, EAN, or ITF-14).";
+  }
+
+  return errors;
+}
 
 async function runAnalysisWithTimeout(
   namePhoto: File | null,
@@ -151,6 +218,7 @@ function AddFoodPage() {
     if (isNaN(kcal) || kcal <= 0) return;
 
     setSaving(true);
+    setState((s) => ({ ...s, saveError: null }));
 
     // Check barcode collision first — strongest duplicate signal
     const trimmedBarcode = state.barcode.trim();
@@ -174,22 +242,36 @@ function AddFoodPage() {
       return;
     }
 
-    await submitCustomFood({
-      name: state.productName,
-      caloriesPer100g: kcal,
-      userId: user.uid,
-      proteinPer100g: state.proteinPer100g
-        ? parseFloat(state.proteinPer100g)
-        : undefined,
-      fatPer100g: state.fatPer100g ? parseFloat(state.fatPer100g) : undefined,
-      carbsPer100g: state.carbsPer100g
-        ? parseFloat(state.carbsPer100g)
-        : undefined,
-      countryOfOrigin: state.countryOfOrigin.trim() || undefined,
-      barcode: state.barcode.trim() || undefined,
-    });
-    setSaving(false);
-    setState((s) => ({ ...s, step: "saved" }));
+    try {
+      await submitCustomFood({
+        name: state.productName,
+        caloriesPer100g: kcal,
+        userId: user.uid,
+        proteinPer100g: state.proteinPer100g
+          ? parseFloat(state.proteinPer100g)
+          : undefined,
+        fatPer100g: state.fatPer100g ? parseFloat(state.fatPer100g) : undefined,
+        carbsPer100g: state.carbsPer100g
+          ? parseFloat(state.carbsPer100g)
+          : undefined,
+        countryOfOrigin: state.countryOfOrigin.trim() || undefined,
+        barcode: state.barcode.trim() || undefined,
+      });
+      setSaving(false);
+      setState((s) => ({ ...s, step: "saved", saveError: null }));
+    } catch (err) {
+      setSaving(false);
+      const message =
+        err &&
+        typeof err === "object" &&
+        "code" in err &&
+        err.code === "permission-denied"
+          ? "The server rejected this food. Please double-check the values and try again."
+          : err instanceof Error
+            ? err.message
+            : "Something went wrong saving this food. Please try again.";
+      setState((s) => ({ ...s, saveError: message }));
+    }
   }
 
   return (
@@ -604,10 +686,8 @@ function ReviewStep({
   onSave: () => void;
   saving: boolean;
 }) {
-  const canSave =
-    state.productName.trim() &&
-    state.caloriesPer100g &&
-    !isNaN(parseFloat(state.caloriesPer100g));
+  const fieldErrors = validateFood(state);
+  const canSave = Object.keys(fieldErrors).length === 0;
 
   const AiBadge = ({ field }: { field: string }) =>
     state.aiExtractedFields.has(field) ? (
@@ -634,6 +714,7 @@ function ReviewStep({
     required = false,
     type = "text",
   ) {
+    const error = fieldErrors[key as keyof FieldErrors];
     return (
       <label style={{ display: "block", marginBottom: "1rem" }}>
         <div
@@ -654,12 +735,25 @@ function ReviewStep({
           style={{
             width: "100%",
             padding: "0.6rem 0.75rem",
-            border: "1.5px solid var(--color-border)",
+            border: error
+              ? "1.5px solid #d04030"
+              : "1.5px solid var(--color-border)",
             borderRadius: "0.5rem",
             fontSize: "1rem",
             boxSizing: "border-box",
           }}
         />
+        {error && (
+          <div
+            style={{
+              fontSize: "0.75rem",
+              color: "#a03020",
+              marginTop: "0.25rem",
+            }}
+          >
+            {error}
+          </div>
+        )}
       </label>
     );
   }
@@ -722,41 +816,57 @@ function ReviewStep({
         }}
       >
         {(["proteinPer100g", "fatPer100g", "carbsPer100g"] as const).map(
-          (key) => (
-            <label key={key} style={{ display: "block" }}>
-              <div
-                style={{
-                  fontSize: "0.8rem",
-                  fontWeight: "600",
-                  marginBottom: "0.25rem",
-                }}
-              >
-                {
+          (key) => {
+            const macroError = fieldErrors[key];
+            return (
+              <label key={key} style={{ display: "block" }}>
+                <div
+                  style={{
+                    fontSize: "0.8rem",
+                    fontWeight: "600",
+                    marginBottom: "0.25rem",
+                  }}
+                >
                   {
-                    proteinPer100g: "Protein (g)",
-                    fatPer100g: "Fat (g)",
-                    carbsPer100g: "Carbs (g)",
-                  }[key]
-                }
-                <AiBadge field={key} />
-              </div>
-              <input
-                type="number"
-                value={state[key]}
-                onChange={(e) =>
-                  setState((s) => ({ ...s, [key]: e.target.value }))
-                }
-                style={{
-                  width: "100%",
-                  padding: "0.5rem 0.6rem",
-                  border: "1.5px solid var(--color-border)",
-                  borderRadius: "0.5rem",
-                  fontSize: "0.95rem",
-                  boxSizing: "border-box",
-                }}
-              />
-            </label>
-          ),
+                    {
+                      proteinPer100g: "Protein (g)",
+                      fatPer100g: "Fat (g)",
+                      carbsPer100g: "Carbs (g)",
+                    }[key]
+                  }
+                  <AiBadge field={key} />
+                </div>
+                <input
+                  type="number"
+                  value={state[key]}
+                  onChange={(e) =>
+                    setState((s) => ({ ...s, [key]: e.target.value }))
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "0.5rem 0.6rem",
+                    border: macroError
+                      ? "1.5px solid #d04030"
+                      : "1.5px solid var(--color-border)",
+                    borderRadius: "0.5rem",
+                    fontSize: "0.95rem",
+                    boxSizing: "border-box",
+                  }}
+                />
+                {macroError && (
+                  <div
+                    style={{
+                      fontSize: "0.7rem",
+                      color: "#a03020",
+                      marginTop: "0.2rem",
+                    }}
+                  >
+                    {macroError}
+                  </div>
+                )}
+              </label>
+            );
+          },
         )}
       </div>
 
@@ -793,7 +903,9 @@ function ReviewStep({
             style={{
               flex: 1,
               padding: "0.6rem 0.75rem",
-              border: "1.5px solid var(--color-border)",
+              border: fieldErrors.barcode
+                ? "1.5px solid #d04030"
+                : "1.5px solid var(--color-border)",
               borderRadius: "0.5rem",
               fontSize: "1rem",
               boxSizing: "border-box",
@@ -823,6 +935,17 @@ function ReviewStep({
             </button>
           )}
         </div>
+        {fieldErrors.barcode && (
+          <div
+            style={{
+              fontSize: "0.75rem",
+              color: "#a03020",
+              marginTop: "0.25rem",
+            }}
+          >
+            {fieldErrors.barcode}
+          </div>
+        )}
         <p
           style={{
             marginTop: "0.35rem",
@@ -836,6 +959,22 @@ function ReviewStep({
       </label>
 
       {field("countryOfOrigin", "Country of Origin")}
+
+      {state.saveError && (
+        <div
+          style={{
+            background: "rgba(220, 80, 60, 0.08)",
+            border: "1px solid rgba(220, 80, 60, 0.3)",
+            borderRadius: "0.5rem",
+            padding: "0.75rem 1rem",
+            marginTop: "1.5rem",
+            fontSize: "0.85rem",
+            color: "#a03020",
+          }}
+        >
+          <strong>Couldn't save:</strong> {state.saveError}
+        </div>
+      )}
 
       <div
         style={{
