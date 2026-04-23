@@ -6,6 +6,7 @@ import {
   connectAuthEmulator,
 } from "firebase/auth";
 import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
+import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 import { Capacitor } from "@capacitor/core";
 
 const firebaseConfig = {
@@ -21,6 +22,20 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+
+if (Capacitor.getPlatform() === "web") {
+  if (import.meta.env.DEV && import.meta.env.VITE_APP_CHECK_DEBUG_TOKEN) {
+    (self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN: string }).FIREBASE_APPCHECK_DEBUG_TOKEN =
+      import.meta.env.VITE_APP_CHECK_DEBUG_TOKEN;
+  }
+
+  initializeAppCheck(app, {
+    provider: new ReCaptchaV3Provider(
+      import.meta.env.VITE_APP_CHECK_RECAPTCHA_SITE_KEY,
+    ),
+    isTokenAutoRefreshEnabled: true,
+  });
+}
 
 export const auth = Capacitor.isNativePlatform()
   ? initializeAuth(app, { persistence: browserLocalPersistence })

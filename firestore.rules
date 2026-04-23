@@ -7,11 +7,20 @@ service cloud.firestore {
       allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
     }
 
-    // Users can only read/write their own daily energy data
+    // Users can only read/write their own daily energy data.
+    // Doc IDs are shaped as "{userId}_{dateKey}" (see healthDb.ts) so we
+    // authorize against the path's userId segment rather than resource.data.
+    // This is required for subscribing to docs that don't exist yet
+    // (pre-HealthKit-sync), and also blocks path squatting / payload forgery.
     match /daily_energy/{docId} {
-      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
-      allow update: if request.auth != null && request.auth.uid == resource.data.userId
+      allow read:   if request.auth != null
+                    && request.auth.uid == docId.split('_')[0];
+      allow create: if request.auth != null
+                    && request.auth.uid == docId.split('_')[0]
+                    && request.auth.uid == request.resource.data.userId;
+      allow update: if request.auth != null
+                    && request.auth.uid == docId.split('_')[0]
+                    && request.auth.uid == resource.data.userId
                     && request.auth.uid == request.resource.data.userId;
     }
 
