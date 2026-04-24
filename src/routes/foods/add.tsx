@@ -594,10 +594,6 @@ function AnalyzingStep({
   onRetry: () => void;
 }) {
   if (error) {
-    const isNoApiKey =
-      error.toLowerCase().includes("api_key") ||
-      error.toLowerCase().includes("not set") ||
-      error.toLowerCase().includes("invalid");
     const isRetryable =
       error.toLowerCase().includes("overloaded") ||
       error.toLowerCase().includes("rate limit") ||
@@ -607,9 +603,7 @@ function AnalyzingStep({
       <div style={{ textAlign: "center", padding: "2rem 0" }}>
         <div style={{ fontSize: "2.5rem", marginBottom: "1rem" }}>⚠️</div>
         <p style={{ fontWeight: "600", marginBottom: "0.5rem" }}>
-          {isNoApiKey
-            ? "Gemini API key not configured"
-            : "Analysis didn't complete"}
+          Analysis didn't complete
         </p>
         <p
           style={{
@@ -620,9 +614,7 @@ function AnalyzingStep({
             margin: "0 auto 0.75rem",
           }}
         >
-          {isNoApiKey
-            ? "Add your free Gemini API key to .env as VITE_GEMINI_API_KEY to enable photo extraction."
-            : error}
+          {error}
         </p>
         <p
           style={{

@@ -16,6 +16,12 @@ icons/
 
 # Claude Code local instructions
 CLAUDE.md
+.claude/
 
 # Firebase iOS config — contains project identifiers, kept out of public repo
 ios/App/App/GoogleService-Info.plist
+
+# Cloud Functions — compiled output, deps, and local dev secrets
+functions/lib/
+functions/node_modules/
+functions/.secret.local

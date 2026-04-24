@@ -6,6 +6,7 @@ import {
   connectAuthEmulator,
 } from "firebase/auth";
 import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
+import { getFunctions, connectFunctionsEmulator } from "firebase/functions";
 import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 import { Capacitor } from "@capacitor/core";
 
@@ -41,8 +42,10 @@ export const auth = Capacitor.isNativePlatform()
   ? initializeAuth(app, { persistence: browserLocalPersistence })
   : getAuth(app);
 export const db = getFirestore(app);
+export const functions = getFunctions(app);
 
 if (import.meta.env.VITE_USE_EMULATOR === "true") {
   connectAuthEmulator(auth, "http://localhost:9099", { disableWarnings: true });
   connectFirestoreEmulator(db, "localhost", 8080);
+  connectFunctionsEmulator(functions, "localhost", 5001);
 }
